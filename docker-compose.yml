@@ -95,7 +95,7 @@ services:
       context: ./apps/ai
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: celery -A app.worker worker --loglevel=info --concurrency=2
+    command: celery -A app.worker.celery_app:celery_app worker --loglevel=info --concurrency=2
     <<: *host-extra
     environment:
       <<: *common-env
@@ -115,7 +115,7 @@ services:
       context: ./apps/ai
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: celery -A app.worker beat --loglevel=info --scheduler celery.beat:PersistentScheduler
+    command: celery -A app.worker.celery_app:celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
     <<: *host-extra
     environment:
       <<: *common-env
@@ -146,13 +146,14 @@ services:
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:8000}
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET}
+      HOSTNAME: "0.0.0.0"
     ports:
       - "3000:3000"
     depends_on:
       ai:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
