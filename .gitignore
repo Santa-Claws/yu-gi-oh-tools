@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+.next/
+.nuxt/
+dist/
+.turbo/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Storage (don't commit uploaded/scraped data)
+storage/uploads/
+storage/thumbnails/
+storage/exports/
+storage/scraped/
+data/
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Logs
+*.log

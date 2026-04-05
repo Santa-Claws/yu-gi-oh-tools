@@ -1,0 +1,180 @@
+version: "3.9"
+
+x-common-env: &common-env
+  DATABASE_URL: ${DATABASE_URL}
+  REDIS_URL: ${REDIS_URL}
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+  OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL}
+  OLLAMA_TEXT_MODEL: ${OLLAMA_TEXT_MODEL}
+  OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL}
+  AI_SERVICE_URL: ${AI_SERVICE_URL}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+  UPLOAD_DIR: ${UPLOAD_DIR:-/storage/uploads}
+  THUMBNAIL_DIR: ${THUMBNAIL_DIR:-/storage/thumbnails}
+  EXPORT_DIR: ${EXPORT_DIR:-/storage/exports}
+  SCRAPED_DIR: ${SCRAPED_DIR:-/storage/scraped}
+  APP_ENV: ${APP_ENV:-development}
+
+services:
+  # ─── Infrastructure ──────────────────────────────────────────────────────────
+
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-yugioh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-yugioh_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-yugioh}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./packages/db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-yugioh}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    # Enable GPU passthrough if available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/version || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ─── AI / Backend ─────────────────────────────────────────────────────────────
+
+  ai:
+    build:
+      context: ./apps/ai
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-10080}
+      RATE_LIMIT_AI_RPM: ${RATE_LIMIT_AI_RPM:-30}
+      RATE_LIMIT_UPLOAD_RPM: ${RATE_LIMIT_UPLOAD_RPM:-10}
+      YGOPRODECK_API_URL: ${YGOPRODECK_API_URL}
+      SCRAPE_USER_AGENT: ${SCRAPE_USER_AGENT:-YuGiOhTools/1.0}
+    volumes:
+      - ./storage:/storage
+      - ./apps/ai:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: ./apps/ai
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A app.worker worker --loglevel=info --concurrency=2
+    environment:
+      <<: *common-env
+      YGOPRODECK_API_URL: ${YGOPRODECK_API_URL}
+      SCRAPE_USER_AGENT: ${SCRAPE_USER_AGENT:-YuGiOhTools/1.0}
+    volumes:
+      - ./storage:/storage
+      - ./apps/ai:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  beat:
+    build:
+      context: ./apps/ai
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A app.worker beat --loglevel=info --scheduler celery.beat:PersistentScheduler
+    environment:
+      <<: *common-env
+      YGOPRODECK_API_URL: ${YGOPRODECK_API_URL}
+      SCRAPE_USER_AGENT: ${SCRAPE_USER_AGENT:-YuGiOhTools/1.0}
+    volumes:
+      - ./storage:/storage
+      - ./apps/ai:/app
+      - celery_beat_data:/var/run/celerybeat
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─── Frontend ─────────────────────────────────────────────────────────────────
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:8000}
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "3000:3000"
+    depends_on:
+      ai:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  celery_beat_data:
