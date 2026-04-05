@@ -1,8 +1,10 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
@@ -14,7 +16,9 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("startup", env=get_settings().app_env)
+    settings = get_settings()
+    os.makedirs(settings.card_images_dir, exist_ok=True)
+    logger.info("startup", env=settings.app_env)
     yield
     await close_redis()
     logger.info("shutdown")
@@ -53,6 +57,12 @@ app.include_router(decks_router)
 app.include_router(recommend_router)
 app.include_router(meta_router)
 app.include_router(admin_router)
+
+app.mount(
+    "/card-images",
+    StaticFiles(directory=settings.card_images_dir),
+    name="card-images",
+)
 
 
 @app.get("/health")

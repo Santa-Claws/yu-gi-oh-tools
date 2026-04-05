@@ -6,9 +6,10 @@ from app.api.deps import require_admin
 from app.db.session import get_db
 from app.models.analytics import AnalyticsEvent, BackgroundJob
 from app.models.user import User
+from app.worker.tasks.download_images_task import download_card_images_task
+from app.worker.tasks.embed_tasks import embed_cards_task
 from app.worker.tasks.import_tasks import import_cards_task
 from app.worker.tasks.scrape_tasks import scrape_source_task
-from app.worker.tasks.embed_tasks import embed_cards_task
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -36,6 +37,14 @@ async def rebuild_embeddings(
     admin: User = Depends(require_admin),
 ):
     task = embed_cards_task.delay()
+    return {"task_id": task.id, "status": "queued"}
+
+
+@router.post("/download/images")
+async def download_card_images(
+    admin: User = Depends(require_admin),
+):
+    task = download_card_images_task.delay()
     return {"task_id": task.id, "status": "queued"}
 
 

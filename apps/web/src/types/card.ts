@@ -35,6 +35,7 @@ export interface Card {
   tcg_ban_status: string;
   ocg_ban_status: string;
   is_extra_deck: boolean;
+  views: number;
   prints: CardPrint[];
   created_at: string;
   updated_at: string;
