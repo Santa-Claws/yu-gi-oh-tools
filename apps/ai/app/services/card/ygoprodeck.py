@@ -37,7 +37,7 @@ def map_card(data: dict) -> dict:
 
     return {
         "ygoprodeck_id": data["id"],
-        "konami_id": misc.get("konami_id"),
+        "konami_id": str(misc["konami_id"]) if misc.get("konami_id") is not None else None,
         "name_en": data.get("name", ""),
         "card_type": card_type,
         "monster_type": infer_monster_type(data),
