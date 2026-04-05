@@ -45,6 +45,7 @@ class CardOut(BaseModel):
     tcg_ban_status: str
     ocg_ban_status: str
     is_extra_deck: bool
+    views: int = 0
     prints: list[CardPrintOut] = []
     created_at: datetime
     updated_at: datetime

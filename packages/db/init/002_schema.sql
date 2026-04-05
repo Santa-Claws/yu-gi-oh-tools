@@ -79,6 +79,7 @@ CREATE TABLE cards (
   tcg_ban_status   ban_status NOT NULL DEFAULT 'unlimited',
   ocg_ban_status   ban_status NOT NULL DEFAULT 'unlimited',
   is_extra_deck    BOOLEAN NOT NULL DEFAULT FALSE,
+  views            INTEGER NOT NULL DEFAULT 0,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -94,6 +95,7 @@ CREATE INDEX idx_cards_link_rating ON cards (link_rating);
 CREATE INDEX idx_cards_tcg_ban_status ON cards (tcg_ban_status);
 CREATE INDEX idx_cards_ocg_ban_status ON cards (ocg_ban_status);
 CREATE INDEX idx_cards_ygoprodeck_id ON cards (ygoprodeck_id);
+CREATE INDEX idx_cards_views ON cards (views DESC);
 
 -- ─── Card Prints (sets) ───────────────────────────────────────────────────────
 

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     thumbnail_dir: str = "/storage/thumbnails"
     export_dir: str = "/storage/exports"
     scraped_dir: str = "/storage/scraped"
+    card_images_dir: str = "/storage/card_images"
 
     # External APIs
     ygoprodeck_api_url: str = "https://db.ygoprodeck.com/api/v7"
