@@ -63,6 +63,7 @@ async def _run_import(limit: int | None = None):
 
             except Exception as e:
                 logger.error("import_card_failed", card_id=card_data.get("id"), error=str(e))
+                await db.rollback()
 
         await db.commit()
 
