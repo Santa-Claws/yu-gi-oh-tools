@@ -131,6 +131,30 @@ services:
       redis:
         condition: service_healthy
 
+  # ─── Debug / Alpha tooling (remove before final production deploy) ───────────
+
+  flower:
+    image: mher/flower:2.0
+    restart: unless-stopped
+    command: celery --broker=${CELERY_BROKER_URL} flower --port=5555
+    environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+
+  adminer:
+    image: adminer:4
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
   # ─── Frontend ─────────────────────────────────────────────────────────────────
 
   web:

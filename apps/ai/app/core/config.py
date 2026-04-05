@@ -43,6 +43,7 @@ class Settings(BaseSettings):
 
     # App
     app_env: str = "development"
+    cors_origins: str = "*"  # comma-separated list or "*"
 
     @property
     def is_development(self) -> bool:

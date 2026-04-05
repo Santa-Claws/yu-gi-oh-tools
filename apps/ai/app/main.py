@@ -1,7 +1,8 @@
 import os
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,22 +25,46 @@ async def lifespan(app: FastAPI):
 
 settings = get_settings()
 
+# Parse CORS origins — "*" means allow all (alpha/dev), otherwise comma-separated list
+_raw_origins = settings.cors_origins.strip()
+_allow_all = _raw_origins == "*"
+_cors_origins = [] if _allow_all else [o.strip() for o in _raw_origins.split(",")]
+
 app = FastAPI(
     title="Yu-Gi-Oh Tools API",
     description="AI-powered Yu-Gi-Oh card identification, deck building, and recommendation engine.",
     version="0.1.0",
     lifespan=lifespan,
-    docs_url="/docs" if settings.is_development else None,
-    redoc_url="/redoc" if settings.is_development else None,
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://web:3000"],
+    # allow_origins=["*"] + allow_credentials=True is invalid; use allow_origin_regex instead
+    allow_origins=_cors_origins,
+    allow_origin_regex=r".*" if _allow_all else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    duration_ms = (time.monotonic() - start) * 1000
+    logger.info(
+        "http_request",
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        duration_ms=round(duration_ms, 1),
+        client=request.client.host if request.client else None,
+    )
+    return response
+
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 from app.api.routes.auth import router as auth_router
