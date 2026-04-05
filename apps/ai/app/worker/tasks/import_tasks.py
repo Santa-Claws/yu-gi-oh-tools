@@ -13,24 +13,35 @@ from app.worker.celery_app import celery_app
 
 logger = get_logger(__name__)
 
-YGOPRODECK_ALL_CARDS = "{api_url}/cardinfo.php?misc=yes&num=10000&offset=0"
+YGOPRODECK_CARDS_URL = "{api_url}/cardinfo.php?misc=yes&num={num}&offset={offset}"
+PAGE_SIZE = 5000
 
 
 async def _run_import(limit: int | None = None):
     settings = get_settings()
-    url = YGOPRODECK_ALL_CARDS.format(api_url=settings.ygoprodeck_api_url)
-
-    logger.info("import_cards_start", url=url)
+    all_cards: list = []
+    offset = 0
 
     async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        data = resp.json()
+        while True:
+            url = YGOPRODECK_CARDS_URL.format(
+                api_url=settings.ygoprodeck_api_url,
+                num=PAGE_SIZE,
+                offset=offset,
+            )
+            logger.info("import_cards_fetch", offset=offset)
+            resp = await client.get(url)
+            resp.raise_for_status()
+            page = resp.json().get("data", [])
+            all_cards.extend(page)
+            if len(page) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
 
-    cards_data = data.get("data", [])
     if limit:
-        cards_data = cards_data[:limit]
+        all_cards = all_cards[:limit]
 
+    cards_data = all_cards
     logger.info("import_cards_fetched", count=len(cards_data))
 
     async with AsyncSessionLocal() as db:
