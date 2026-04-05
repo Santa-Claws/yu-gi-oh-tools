@@ -30,11 +30,11 @@ services:
     volumes:
       - ${OLLAMA_MODELS_DIR:-/root/.ollama}:/root/.ollama
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/version || exit 1"]
+      test: ["CMD", "ollama", "list"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
-      start_period: 10s
+      start_period: 15s
 
   db:
     image: pgvector/pgvector:pg16
