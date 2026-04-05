@@ -28,7 +28,7 @@ services:
     image: ollama/ollama:latest
     restart: unless-stopped
     volumes:
-      - ollama_data:/root/.ollama
+      - ${OLLAMA_MODELS_DIR:-/root/.ollama}:/root/.ollama
     ports:
       - "11434:11434"
     healthcheck:
@@ -207,4 +207,3 @@ volumes:
   postgres_data:
   redis_data:
   celery_beat_data:
-  ollama_data:
