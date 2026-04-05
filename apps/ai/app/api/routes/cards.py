@@ -57,7 +57,11 @@ async def search_cards(
         sort=sort, page=page, page_size=page_size,
     )
     svc = CardSearchService(db)
-    return await svc.search(params, user=current_user)
+    result = await svc.search(params, user=current_user)
+    return {
+        **result,
+        "cards": [CardOut.model_validate(c) for c in result["cards"]],
+    }
 
 
 @router.get("/{card_id}", response_model=CardOut)
