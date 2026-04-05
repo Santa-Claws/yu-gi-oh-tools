@@ -1,0 +1,4 @@
+# Install separately when OCR is needed (large ~3GB download)
+# docker compose exec ai pip install -r requirements-ocr.txt
+paddleocr==2.8.1
+paddlepaddle==2.6.2

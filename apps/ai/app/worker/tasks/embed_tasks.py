@@ -89,4 +89,4 @@ async def _run_embed():
 
 @celery_app.task(name="app.worker.tasks.embed_tasks.embed_cards_task", bind=True)
 def embed_cards_task(self):
-    return asyncio.get_event_loop().run_until_complete(_run_embed())
+    return asyncio.run(_run_embed())

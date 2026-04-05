@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, or_, text
+from sqlalchemy import select, func, and_, or_, text, bindparam
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -111,11 +111,11 @@ class CardSearchService:
             .options(selectinload(Card.prints))
             .where(
                 or_(
-                    text(f"name_en % '{name}'"),
+                    text("name_en % :name").bindparams(name=name),
                     Card.name_en.ilike(f"%{name}%"),
                 )
             )
-            .order_by(text(f"similarity(name_en, '{name}') DESC"))
+            .order_by(text("similarity(name_en, :name) DESC").bindparams(name=name))
             .limit(limit)
         )
         return list(result.scalars().all())

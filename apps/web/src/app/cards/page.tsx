@@ -20,7 +20,7 @@ export default function CardsPage() {
           <h2 className="mb-3 font-semibold">Filters</h2>
           <CardFilters
             onFilter={(vals) => {
-              setFilters(vals as Record<string, string>);
+              setFilters(vals as unknown as Record<string, string | number | undefined>);
               setPage(1);
             }}
           />

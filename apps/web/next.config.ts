@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   images: {
     remotePatterns: [
       {
@@ -11,7 +12,9 @@ const nextConfig: NextConfig = {
     ],
   },
   // Allow server components to call the AI service directly
-  serverExternalPackages: ["sharp"],
+  experimental: {
+    serverComponentsExternalPackages: ["sharp"],
+  },
 };
 
 export default nextConfig;

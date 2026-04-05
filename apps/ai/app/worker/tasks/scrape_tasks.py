@@ -85,9 +85,9 @@ async def _run_scrape(source_id: str | None = None):
 
 @celery_app.task(name="app.worker.tasks.scrape_tasks.scrape_source_task", bind=True)
 def scrape_source_task(self, source_id: str | None = None):
-    return asyncio.get_event_loop().run_until_complete(_run_scrape(source_id))
+    return asyncio.run(_run_scrape(source_id))
 
 
 @celery_app.task(name="app.worker.tasks.scrape_tasks.scrape_all_sources_task", bind=True)
 def scrape_all_sources_task(self):
-    return asyncio.get_event_loop().run_until_complete(_run_scrape())
+    return asyncio.run(_run_scrape())

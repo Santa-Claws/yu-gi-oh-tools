@@ -149,4 +149,4 @@ async def _run_import(limit: int | None = None):
 
 @celery_app.task(name="app.worker.tasks.import_tasks.import_cards_task", bind=True)
 def import_cards_task(self, limit: int | None = None):
-    return asyncio.get_event_loop().run_until_complete(_run_import(limit))
+    return asyncio.run(_run_import(limit))

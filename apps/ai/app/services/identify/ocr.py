@@ -76,8 +76,15 @@ class OCREngine:
 
     def _get_ocr(self):
         if OCREngine._ocr is None:
-            from paddleocr import PaddleOCR
-            OCREngine._ocr = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+            try:
+                from paddleocr import PaddleOCR
+                OCREngine._ocr = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+            except ImportError:
+                logger.warning(
+                    "paddleocr_not_installed",
+                    hint="Install via: pip install paddleocr paddlepaddle",
+                )
+                OCREngine._ocr = None
         return OCREngine._ocr
 
     def run(self, image_bytes: bytes) -> OCRResult:
@@ -88,6 +95,8 @@ class OCREngine:
             return OCRResult(raw_text="", lines=[], confidence=0.0)
 
         ocr = self._get_ocr()
+        if ocr is None:
+            return OCRResult(raw_text="", lines=[], confidence=0.0)
         result = ocr.ocr(preprocessed, cls=True)
 
         if not result or not result[0]:

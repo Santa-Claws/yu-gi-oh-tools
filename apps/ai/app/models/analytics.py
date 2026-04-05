@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from app.db.session import Base
@@ -33,12 +33,10 @@ class BackgroundJob(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     job_type = Column(
-        String,
         Enum("scrape", "import", "index", "embed", name="job_type"),
         nullable=False,
     )
     status = Column(
-        String,
         Enum("pending", "running", "completed", "failed", "cancelled", name="job_status"),
         nullable=False,
         default="pending",

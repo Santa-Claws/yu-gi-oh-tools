@@ -61,7 +61,7 @@ export default function DeckDetailPage({ params }: { params: Promise<{ id: strin
             variant="outline"
             size="sm"
             loading={saveVersion.isPending}
-            onClick={() => saveVersion.mutate()}
+            onClick={() => saveVersion.mutate(undefined)}
           >
             Save Version
           </Button>

@@ -16,6 +16,11 @@ x-common-env: &common-env
   SCRAPED_DIR: ${SCRAPED_DIR:-/storage/scraped}
   APP_ENV: ${APP_ENV:-development}
 
+# host.docker.internal resolves to the host machine's IP inside containers
+x-host-extra: &host-extra
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
 services:
   # ─── Infrastructure ──────────────────────────────────────────────────────────
 
@@ -51,28 +56,6 @@ services:
       timeout: 5s
       retries: 5
 
-  ollama:
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    volumes:
-      - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
-    # Enable GPU passthrough if available:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/version || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
   # ─── AI / Backend ─────────────────────────────────────────────────────────────
 
   ai:
@@ -80,6 +63,7 @@ services:
       context: ./apps/ai
       dockerfile: Dockerfile
     restart: unless-stopped
+    <<: *host-extra
     environment:
       <<: *common-env
       JWT_SECRET: ${JWT_SECRET}
@@ -99,8 +83,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
       interval: 15s
@@ -114,6 +96,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     command: celery -A app.worker worker --loglevel=info --concurrency=2
+    <<: *host-extra
     environment:
       <<: *common-env
       YGOPRODECK_API_URL: ${YGOPRODECK_API_URL}
@@ -133,6 +116,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     command: celery -A app.worker beat --loglevel=info --scheduler celery.beat:PersistentScheduler
+    <<: *host-extra
     environment:
       <<: *common-env
       YGOPRODECK_API_URL: ${YGOPRODECK_API_URL}
@@ -156,6 +140,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     restart: unless-stopped
+    <<: *host-extra
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:8000}
@@ -176,5 +161,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  ollama_data:
   celery_beat_data:
