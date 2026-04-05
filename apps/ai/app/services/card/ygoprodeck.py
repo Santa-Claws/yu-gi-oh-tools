@@ -9,13 +9,17 @@ def is_extra_deck(card_data: dict) -> bool:
     return any(t in frame for t in MONSTER_EXTRA_TYPES)
 
 
+_NON_MONSTER_FRAMES = {"spell", "trap", "token", "skill"}
+
+
 def infer_monster_type(data: dict) -> str | None:
     frame = data.get("frameType", "").lower()
-    if "monster" not in frame:
+    if frame in _NON_MONSTER_FRAMES:
         return None
     for t in ["fusion", "synchro", "xyz", "link", "ritual", "pendulum"]:
         if t in frame:
             return t
+    # normal/effect/flip/gemini/spirit/union/tuner all map here
     return "effect" if "effect" in (data.get("desc") or "").lower() else "normal"
 
 
@@ -30,7 +34,8 @@ def normalize_ban(status: str) -> str:
 
 def map_card(data: dict) -> dict:
     frame = data.get("frameType", "").lower()
-    card_type = "monster" if "monster" in frame else ("spell" if frame == "spell" else "trap")
+    # YGOProDeck frameType is "spell"/"trap" for those types; everything else is a monster
+    card_type = "spell" if frame == "spell" else ("trap" if frame == "trap" else "monster")
 
     banlist = data.get("banlist_info", {})
     misc = (data.get("misc_info") or [{}])[0]
