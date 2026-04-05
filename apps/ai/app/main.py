@@ -16,8 +16,6 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = get_settings()
-    os.makedirs(settings.card_images_dir, exist_ok=True)
     logger.info("startup", env=settings.app_env)
     yield
     await close_redis()
@@ -58,6 +56,7 @@ app.include_router(recommend_router)
 app.include_router(meta_router)
 app.include_router(admin_router)
 
+os.makedirs(settings.card_images_dir, exist_ok=True)
 app.mount(
     "/card-images",
     StaticFiles(directory=settings.card_images_dir),
