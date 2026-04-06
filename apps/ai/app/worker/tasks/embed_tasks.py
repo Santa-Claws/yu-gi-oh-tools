@@ -5,7 +5,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.logging import get_logger
-from app.db.session import AsyncSessionLocal
+from app.db.session import AsyncSessionLocal, engine
 from app.models.card import Card, CardEmbedding
 from app.services.embed.ollama import OllamaClient
 from app.worker.celery_app import celery_app
@@ -49,6 +49,9 @@ def _build_chunks(card: Card) -> list[tuple[str, str]]:
 
 
 async def _run_embed():
+    # Dispose stale pool connections from any previous event loop before acquiring new ones
+    await engine.dispose()
+
     ollama = OllamaClient()
 
     if not await ollama.health_check():
