@@ -49,6 +49,11 @@ export interface CardSearchResult {
   pages: number;
 }
 
+export interface SemanticSearchResult {
+  card: Card;
+  similarity: number;
+}
+
 export interface CardIdentifyResult {
   card: Card;
   confidence: number;

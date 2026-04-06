@@ -77,6 +77,16 @@ class CardSearchParams(BaseModel):
     page_size: int = Field(default=24, ge=1, le=100)
 
 
+class SemanticSearchRequest(BaseModel):
+    query: str
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class SemanticSearchResult(BaseModel):
+    card: CardOut
+    similarity: float
+
+
 class CardIdentifyTextRequest(BaseModel):
     text: str
     language: str = "en"

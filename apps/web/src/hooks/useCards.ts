@@ -3,7 +3,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiFetch, apiUpload } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { Card, CardSearchResult, CardIdentifyResponse } from "@/types/card";
+import type { Card, CardSearchResult, CardIdentifyResponse, SemanticSearchResult } from "@/types/card";
 
 export function useCard(id: string) {
   return useQuery<Card>({
@@ -21,6 +21,16 @@ export function useCards(params: Record<string, string | number | undefined>) {
   return useQuery<CardSearchResult>({
     queryKey: ["cards", params],
     queryFn: () => apiFetch(`/cards?${search}`),
+  });
+}
+
+export function useSemanticSearch() {
+  return useMutation<SemanticSearchResult[], Error, { query: string; limit?: number }>({
+    mutationFn: ({ query, limit = 20 }) =>
+      apiFetch("/cards/search/ai", {
+        method: "POST",
+        body: { query, limit },
+      }),
   });
 }
 

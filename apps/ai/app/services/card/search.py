@@ -1,10 +1,10 @@
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, or_, text, bindparam
+from sqlalchemy import select, func, and_, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.card import Card, CardPrint
+from app.models.card import Card, CardPrint, CardEmbedding
 from app.models.user import User
 from app.schemas.card import CardSearchParams
 
@@ -105,6 +105,25 @@ class CardSearchService:
             "page_size": params.page_size,
             "pages": (total + params.page_size - 1) // params.page_size,
         }
+
+    async def semantic_search(
+        self, query: str, limit: int = 20, chunk_type: str = "full"
+    ) -> list[tuple[Card, float]]:
+        """Embed query with nomic-embed-text and return cards ranked by cosine similarity."""
+        from app.services.embed.ollama import OllamaClient
+
+        ollama = OllamaClient()
+        query_vec = await ollama.embed(query)
+
+        result = await self.db.execute(
+            select(Card, (1 - CardEmbedding.embedding.cosine_distance(query_vec)).label("similarity"))
+            .join(CardEmbedding, Card.id == CardEmbedding.card_id)
+            .where(CardEmbedding.chunk_type == chunk_type)
+            .order_by(CardEmbedding.embedding.cosine_distance(query_vec))
+            .limit(limit)
+            .options(selectinload(Card.prints))
+        )
+        return [(row.Card, float(row.similarity)) for row in result]
 
     async def fuzzy_search_by_name(self, name: str, limit: int = 5) -> list[Card]:
         """Trigram-based fuzzy match for OCR candidate lookup."""

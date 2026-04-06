@@ -14,6 +14,7 @@ from app.models.card import Card, CardPrint
 from app.models.user import User
 from app.schemas.card import (
     CardOut, CardSearchParams, CardIdentifyTextRequest, CardIdentifyResponse,
+    SemanticSearchRequest, SemanticSearchResult,
 )
 from app.services.card.search import CardSearchService
 from app.services.card.ygoprodeck import map_card, map_print
@@ -120,6 +121,21 @@ async def get_card_by_ygoprodeck_id(
         select(Card).options(selectinload(Card.prints)).where(Card.id == card_db_id)
     )
     return result.scalar_one()
+
+
+@router.post("/search/ai", response_model=list[SemanticSearchResult])
+async def ai_search(
+    body: SemanticSearchRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Semantic card search using vector embeddings. Understands natural language queries
+    like 'zombie field spell' or 'cards that let you draw from your deck'."""
+    svc = CardSearchService(db)
+    results = await svc.semantic_search(body.query, limit=body.limit)
+    return [
+        SemanticSearchResult(card=CardOut.model_validate(card), similarity=score)
+        for card, score in results
+    ]
 
 
 @router.post("/identify/image", response_model=CardIdentifyResponse)
