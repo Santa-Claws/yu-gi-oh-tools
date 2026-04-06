@@ -80,6 +80,7 @@ CREATE TABLE cards (
   ocg_ban_status   ban_status NOT NULL DEFAULT 'unlimited',
   is_extra_deck    BOOLEAN NOT NULL DEFAULT FALSE,
   views            INTEGER NOT NULL DEFAULT 0,
+  popularity_score FLOAT NOT NULL DEFAULT 0,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -96,6 +97,7 @@ CREATE INDEX idx_cards_tcg_ban_status ON cards (tcg_ban_status);
 CREATE INDEX idx_cards_ocg_ban_status ON cards (ocg_ban_status);
 CREATE INDEX idx_cards_ygoprodeck_id ON cards (ygoprodeck_id);
 CREATE INDEX idx_cards_views ON cards (views DESC);
+CREATE INDEX idx_cards_popularity_score ON cards (popularity_score DESC);
 
 -- ─── Card Prints (sets) ───────────────────────────────────────────────────────
 
@@ -219,6 +221,30 @@ CREATE TABLE scraped_documents (
 
 CREATE INDEX idx_scraped_docs_source_id ON scraped_documents (source_id);
 CREATE INDEX idx_scraped_docs_scraped_at ON scraped_documents (scraped_at DESC);
+
+-- ─── Meta Decks (structured tier list / tournament data) ────────────────────
+
+CREATE TABLE meta_decks (
+  id                     UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name                   TEXT NOT NULL,
+  archetype              TEXT,
+  format                 TEXT NOT NULL DEFAULT 'tcg',
+  tier                   TEXT,
+  source_name            TEXT,
+  source_url             TEXT,
+  win_rate               FLOAT,
+  tournament_appearances INTEGER NOT NULL DEFAULT 0,
+  key_card_ids           UUID[],
+  description            TEXT,
+  extra_data             JSONB NOT NULL DEFAULT '{}',
+  scraped_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_meta_decks_format_tier ON meta_decks (format, tier);
+CREATE INDEX idx_meta_decks_scraped_at ON meta_decks (scraped_at DESC);
+CREATE INDEX idx_meta_decks_archetype ON meta_decks (archetype);
 
 -- ─── Document Embeddings (meta/community content) ────────────────────────────
 

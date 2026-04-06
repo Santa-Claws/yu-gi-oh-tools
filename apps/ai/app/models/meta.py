@@ -1,9 +1,9 @@
 import uuid
 from sqlalchemy import (
-    Boolean, Column, DateTime, Enum, ForeignKey, Integer,
+    Boolean, Column, DateTime, Enum, Float, ForeignKey, Integer,
     Numeric, String, Text, func,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, UUID, JSONB
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 
@@ -60,3 +60,23 @@ class DocumentEmbedding(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     document = relationship("ScrapedDocument", back_populates="embeddings")
+
+
+class MetaDeck(Base):
+    __tablename__ = "meta_decks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False)
+    archetype = Column(Text)
+    format = Column(Text, nullable=False, default="tcg")
+    tier = Column(Text)
+    source_name = Column(Text)
+    source_url = Column(Text)
+    win_rate = Column(Float)
+    tournament_appearances = Column(Integer, nullable=False, default=0)
+    key_card_ids = Column(ARRAY(UUID(as_uuid=True)))
+    description = Column(Text)
+    extra_data = Column(JSONB, default=dict)
+    scraped_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())

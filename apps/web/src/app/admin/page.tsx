@@ -52,6 +52,11 @@ export default function AdminPage() {
     onSuccess: () => refetchJobs(),
   });
 
+  const scrapeMetaDecks = useMutation({
+    mutationFn: () => adminFetch("/admin/scrape/meta-decks", { method: "POST" }),
+    onSuccess: () => refetchJobs(),
+  });
+
   const statusColor: Record<string, string> = {
     completed: "bg-green-100 text-green-800",
     running: "bg-blue-100 text-blue-800",
@@ -75,6 +80,9 @@ export default function AdminPage() {
           </Button>
           <Button loading={rebuildEmbed.isPending} variant="outline" onClick={() => rebuildEmbed.mutate()}>
             Rebuild Embeddings
+          </Button>
+          <Button loading={scrapeMetaDecks.isPending} variant="outline" onClick={() => scrapeMetaDecks.mutate()}>
+            Scrape Meta Decks
           </Button>
         </div>
       </section>

@@ -12,13 +12,26 @@ router = APIRouter(prefix="/meta", tags=["meta"])
 @router.get("/popular-decks")
 async def popular_decks(
     format: str = Query(default="tcg"),
+    tier: str | None = Query(default=None, description="Filter by tier: S, A, B, C"),
     archetype: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
     svc = MetaScraperService(db)
-    return await svc.get_popular_decks(format=format, archetype=archetype, page=page, page_size=page_size)
+    return await svc.get_popular_decks(
+        format=format, tier=tier, archetype=archetype, page=page, page_size=page_size
+    )
+
+
+@router.get("/popular-cards")
+async def popular_cards(
+    format: str = Query(default="tcg"),
+    limit: int = Query(default=20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    svc = MetaScraperService(db)
+    return await svc.get_popular_cards(format=format, limit=limit)
 
 
 @router.get("/archetypes")

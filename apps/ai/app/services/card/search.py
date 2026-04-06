@@ -82,7 +82,7 @@ class CardSearchService:
         elif params.sort == "name":
             query = query.order_by(Card.name_en.asc())
         elif params.sort == "popularity":
-            query = query.order_by(Card.views.desc())
+            query = query.order_by(Card.popularity_score.desc())
         else:
             query = query.order_by(Card.name_en.asc())
 

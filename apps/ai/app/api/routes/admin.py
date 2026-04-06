@@ -9,6 +9,7 @@ from app.models.user import User
 from app.worker.tasks.download_images_task import download_card_images_task
 from app.worker.tasks.embed_tasks import embed_cards_task
 from app.worker.tasks.import_tasks import import_cards_task
+from app.worker.tasks.scrape_meta_decks_task import scrape_meta_decks_task
 from app.worker.tasks.scrape_tasks import scrape_source_task
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -37,6 +38,14 @@ async def rebuild_embeddings(
     admin: User = Depends(require_admin),
 ):
     task = embed_cards_task.delay()
+    return {"task_id": task.id, "status": "queued"}
+
+
+@router.post("/scrape/meta-decks")
+async def scrape_meta_decks(
+    admin: User = Depends(require_admin),
+):
+    task = scrape_meta_decks_task.delay()
     return {"task_id": task.id, "status": "queued"}
 
 

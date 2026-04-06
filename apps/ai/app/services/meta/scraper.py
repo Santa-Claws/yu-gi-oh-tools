@@ -1,13 +1,18 @@
 """Meta scraper service — orchestrates scraping jobs and serves meta data."""
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.logging import get_logger
-from app.models.meta import MetaSource, ScrapedDocument
+from app.models.card import Card
+from app.models.meta import MetaDeck, MetaSource, ScrapedDocument
+from app.schemas.card import CardOut
 
 logger = get_logger(__name__)
+
+_TIER_ORDER = case({"S": 0, "A": 1, "B": 2, "C": 3}, value=MetaDeck.tier, else_=4)
 
 
 class MetaScraperService:
@@ -17,36 +22,65 @@ class MetaScraperService:
     async def get_popular_decks(
         self,
         format: str = "tcg",
+        tier: str | None = None,
         archetype: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> dict:
-        query = (
-            select(ScrapedDocument)
-            .join(MetaSource, MetaSource.id == ScrapedDocument.source_id)
-            .where(MetaSource.source_type.in_(["tournament_results", "community_deck"]))
-            .order_by(ScrapedDocument.scraped_at.desc())
+        query = select(MetaDeck).where(MetaDeck.format == format)
+        if tier:
+            query = query.where(MetaDeck.tier == tier.upper())
+        if archetype:
+            query = query.where(MetaDeck.archetype.ilike(f"%{archetype}%"))
+        query = query.order_by(_TIER_ORDER, MetaDeck.tournament_appearances.desc())
+
+        total_result = await self.db.execute(
+            select(MetaDeck).where(MetaDeck.format == format)
         )
-        result = await self.db.execute(query.limit(page_size).offset((page - 1) * page_size))
-        docs = list(result.scalars().all())
+        total = len(total_result.scalars().all())
+
+        offset = (page - 1) * page_size
+        result = await self.db.execute(query.offset(offset).limit(page_size))
+        decks = result.scalars().all()
+
+        out = []
+        for deck in decks:
+            key_cards = await self._resolve_cards(deck.key_card_ids or [])
+            out.append({
+                "id": str(deck.id),
+                "name": deck.name,
+                "archetype": deck.archetype,
+                "format": deck.format,
+                "tier": deck.tier,
+                "source_name": deck.source_name,
+                "source_url": deck.source_url,
+                "win_rate": deck.win_rate,
+                "tournament_appearances": deck.tournament_appearances,
+                "key_cards": [CardOut.model_validate(c).model_dump(by_alias=True) for c in key_cards],
+                "description": deck.description,
+                "scraped_at": deck.scraped_at.isoformat() if deck.scraped_at else None,
+            })
+
         return {
-            "decks": [
-                {
-                    "id": str(d.id),
-                    "title": d.title,
-                    "url": d.url,
-                    "scraped_at": d.scraped_at.isoformat() if d.scraped_at else None,
-                }
-                for d in docs
-            ],
+            "decks": out,
+            "total": total,
             "page": page,
             "page_size": page_size,
+            "pages": max(1, (total + page_size - 1) // page_size),
         }
+
+    async def get_popular_cards(self, format: str = "tcg", limit: int = 20) -> list[dict]:
+        result = await self.db.execute(
+            select(Card)
+            .options(selectinload(Card.prints))
+            .order_by(Card.popularity_score.desc())
+            .limit(limit)
+        )
+        cards = result.scalars().all()
+        return [CardOut.model_validate(c).model_dump(by_alias=True) for c in cards]
 
     async def get_archetypes(self, format: str = "tcg") -> dict:
         from sqlalchemy import func
-        from app.models.card import Card
-
         result = await self.db.execute(
             select(Card.archetype, func.count().label("count"))
             .where(Card.archetype.isnot(None))
@@ -58,10 +92,20 @@ class MetaScraperService:
         return {"archetypes": [{"name": r.archetype, "card_count": r.count} for r in rows]}
 
     async def get_trends(self, format: str = "tcg") -> dict:
-        # Placeholder — real implementation will analyze scraped documents
         return {"trends": [], "format": format, "note": "Trend data populated by scraping jobs"}
 
     async def trigger_rebuild(self) -> dict:
         from app.worker.tasks.scrape_tasks import scrape_all_sources_task
         task = scrape_all_sources_task.delay()
         return {"task_id": task.id, "status": "queued"}
+
+    async def _resolve_cards(self, card_ids: list) -> list[Card]:
+        if not card_ids:
+            return []
+        result = await self.db.execute(
+            select(Card)
+            .options(selectinload(Card.prints))
+            .where(Card.id.in_(card_ids))
+        )
+        cards_by_id = {c.id: c for c in result.scalars().all()}
+        return [cards_by_id[cid] for cid in card_ids if cid in cards_by_id]
