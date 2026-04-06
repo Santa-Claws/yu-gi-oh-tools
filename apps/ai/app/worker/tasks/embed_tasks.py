@@ -52,7 +52,6 @@ async def _run_embed():
         result = await db.execute(
             select(Card)
             .where(Card.id.notin_(embedded_ids))
-            .limit(5000)
         )
         cards = list(result.scalars().all())
         logger.info("embed_cards_start", count=len(cards))
