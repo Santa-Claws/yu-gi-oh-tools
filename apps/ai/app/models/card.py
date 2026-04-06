@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, Enum, ForeignKey,
     Integer, SmallInteger, String, Text, ARRAY, Numeric,
-    func,
+    UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -84,6 +84,7 @@ class CardPrint(Base):
 
 class CardEmbedding(Base):
     __tablename__ = "card_embeddings"
+    __table_args__ = (UniqueConstraint("card_id", "chunk_type", name="uq_card_embeddings_card_chunk"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     card_id = Column(UUID(as_uuid=True), ForeignKey("cards.id", ondelete="CASCADE"), nullable=False)

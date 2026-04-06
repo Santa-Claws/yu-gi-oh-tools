@@ -26,12 +26,21 @@ def _build_chunks(card: Card) -> list[tuple[str, str]]:
     if card.effect_text:
         chunks.append(("effect", card.effect_text))
 
-    # Full chunk (name + type + effect)
+    # Full chunk (name + type + subtype + race + effect)
     parts = [card.name_en]
     if card.archetype:
         parts.append(f"Archetype: {card.archetype}")
     if card.card_type:
         parts.append(f"Type: {card.card_type}")
+    if card.race:
+        # For monsters: race = creature type (Zombie, Dragon, etc.)
+        # For spells/traps: race = subtype (Field, Counter, Quick-Play, etc.)
+        label = "Subtype" if card.card_type in ("spell", "trap") else "Race"
+        parts.append(f"{label}: {card.race}")
+    if card.attribute:
+        parts.append(f"Attribute: {card.attribute}")
+    if card.monster_type:
+        parts.append(f"Monster type: {card.monster_type}")
     if card.effect_text:
         parts.append(card.effect_text)
     chunks.append(("full", " | ".join(parts)))
@@ -47,11 +56,12 @@ async def _run_embed():
         return {"error": "Ollama unreachable"}
 
     async with AsyncSessionLocal() as db:
-        # Cards that have no embeddings yet
-        embedded_ids = select(CardEmbedding.card_id).distinct()
+        # Cards that are missing the "full" chunk (re-embed all if chunk format changed)
+        full_embedded_ids = select(CardEmbedding.card_id).where(
+            CardEmbedding.chunk_type == "full"
+        )
         result = await db.execute(
-            select(Card)
-            .where(Card.id.notin_(embedded_ids))
+            select(Card).where(Card.id.notin_(full_embedded_ids))
         )
         cards = list(result.scalars().all())
         logger.info("embed_cards_start", count=len(cards))
@@ -73,7 +83,10 @@ async def _run_embed():
                                 chunk_text=chunk_text,
                                 embedding=embedding,
                                 source="ollama_nomic",
-                            ).on_conflict_do_nothing()
+                            ).on_conflict_do_update(
+                                constraint="uq_card_embeddings_card_chunk",
+                                set_={"chunk_text": chunk_text, "embedding": embedding},
+                            )
                         )
                     total_embedded += 1
                 except Exception as e:
