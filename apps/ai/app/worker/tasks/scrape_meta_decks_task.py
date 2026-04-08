@@ -401,150 +401,46 @@ async def _find_or_create_meta_deck(db: AsyncSession, name: str, archetype: str 
     return deck
 
 
-async def _scrape_limitlesstcg_full_decks() -> int:
-    """
-    Scrape full deck lists from LimitlessTCG Yu-Gi-Oh tournament results.
-    Visits recent tournaments and extracts complete main/extra/side deck card lists.
-    Returns number of decks populated.
-    """
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        logger.warning("playwright_not_installed", source="limitlesstcg_full")
-        return 0
-
-    raw_decks: list[dict] = []  # [{name, archetype, format, source_url, sections: {main:[],extra:[],side:[]}}]
-
-    try:
-        async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            page = await browser.new_page()
-            await page.goto(LIMITLESS_TOURNAMENTS_URL, wait_until="load", timeout=30000)
-
-            # Find recent tournament links
-            t_links = await page.eval_on_selector_all(
-                "a[href]",
-                """els => [...new Set(
-                    els.map(e => e.href)
-                    .filter(h => h.includes('/tournaments/') && !h.endsWith('/tournaments/') && !h.includes('?'))
-                )].slice(0, 8)"""
-            )
-            logger.info("limitless_tournament_links_found", count=len(t_links))
-
-            for t_url in t_links[:5]:
-                try:
-                    await page.goto(t_url, wait_until="load", timeout=30000)
-
-                    # Find deck/placement links within this tournament
-                    deck_links = await page.eval_on_selector_all(
-                        "a[href]",
-                        f"""els => [...new Set(
-                            els.map(e => e.href)
-                            .filter(h => h.startsWith('{t_url}') && h !== '{t_url}' && !h.includes('?'))
-                        )].slice(0, 10)"""
-                    )
-
-                    for d_url in deck_links[:8]:
-                        try:
-                            await page.goto(d_url, wait_until="load", timeout=20000)
-                            page_text = await page.inner_text("body")
-
-                            # Extract deck name from title or heading
-                            deck_name_el = await page.query_selector("h1, h2, [class*='player'], [class*='deck-name']")
-                            deck_name = (await deck_name_el.inner_text()).strip() if deck_name_el else "Unknown Deck"
-                            deck_name = deck_name[:100]
-
-                            # Try to find archetype by looking for archetype/deck type text
-                            archetype_el = await page.query_selector("[class*='archetype'], [class*='deck-type']")
-                            archetype = (await archetype_el.inner_text()).strip() if archetype_el else _infer_archetype(deck_name)
-
-                            # Parse sections from page text
-                            sections: dict[str, list[tuple[str, int]]] = {"main": [], "extra": [], "side": []}
-                            current_section = "main"
-                            for line in page_text.splitlines():
-                                lower = line.strip().lower()
-                                if "extra deck" in lower or "extra:" in lower:
-                                    current_section = "extra"
-                                elif "side deck" in lower or "side:" in lower:
-                                    current_section = "side"
-                                elif "main deck" in lower or "main:" in lower:
-                                    current_section = "main"
-                                else:
-                                    parsed = _parse_card_lines(line)
-                                    sections[current_section].extend(parsed)
-
-                            total_cards = sum(len(v) for v in sections.values())
-                            if total_cards >= 10:  # Only save if we got a reasonable deck
-                                raw_decks.append({
-                                    "name": deck_name,
-                                    "archetype": archetype,
-                                    "format": "tcg",
-                                    "source_url": d_url,
-                                    "sections": sections,
-                                })
-                                logger.info("limitless_deck_parsed", name=deck_name, cards=total_cards, url=d_url)
-                        except Exception as e:
-                            logger.debug("limitless_deck_parse_error", url=d_url, error=str(e))
-                except Exception as e:
-                    logger.debug("limitless_tournament_error", url=t_url, error=str(e))
-
-            await browser.close()
-    except Exception as e:
-        logger.warning("limitlesstcg_full_scrape_error", error=str(e))
-
-    if not raw_decks:
-        logger.info("limitless_full_decks_none_found")
-        return 0
-
-    # Save to DB
-    saved = 0
-    async with _make_task_session()() as db:
-        for raw in raw_decks:
-            try:
-                deck = await _find_or_create_meta_deck(
-                    db, raw["name"], raw.get("archetype"), raw["format"],
-                    "limitlesstcg.com", raw.get("source_url"),
-                )
-                all_names = [name for section in raw["sections"].values() for name, _ in section]
-                card_map = await _match_cards_by_name(db, all_names)
-
-                entries = []
-                ordering = 0
-                for zone_name in ("main", "extra", "side"):
-                    for card_name, qty in raw["sections"].get(zone_name, []):
-                        card = card_map.get(card_name.lower())
-                        if not card:
-                            continue
-                        actual_zone = _zone_for_card_type(card.card_type)
-                        if zone_name == "side":
-                            actual_zone = "side"
-                        entries.append({
-                            "card_id": card.id,
-                            "zone": actual_zone,
-                            "quantity": min(qty, 3),
-                            "ordering": ordering,
-                        })
-                        ordering += 1
-
-                if len(entries) >= 10:
-                    await _save_full_deck(db, deck.id, entries)
-                    saved += 1
-            except Exception as e:
-                logger.warning("limitless_deck_save_error", name=raw.get("name"), error=str(e))
-
-    logger.info("limitless_full_decks_saved", count=saved)
-    return saved
-
-
 # ─── Full deck list scraping: masterduelmeta.com ─────────────────────────────
 
 MASTERDUELMETA_DECKS_URL = "https://www.masterduelmeta.com/top-decks"
 
+_RARITY_RE = re.compile(r"^(UR|SR|R|N|HR)\s*Rarity$", re.IGNORECASE)
+_COPIES_RE = re.compile(r"^(\d+)\s+cop(?:y|ies)$", re.IGNORECASE)
+_SKIP_ALTS = {"Yu-Gi-Oh! Master Duel Meta", "cp-ur", "cp-sr", "[object Object]"}
+# Non-card alt texts that signal the end of the deck list
+_DECK_END_TOKENS = {"Nice!", "Funny", "Love", "Woah", "Angry", "Sad", "JOIN THE COMMUNITY", "Login"}
+
+
+def _parse_mdm_alts(alts: list[str]) -> list[tuple[str, int]]:
+    """
+    Parse img[alt] values from a masterduelmeta.com deck page into (card_name, quantity) pairs.
+    Pattern: card names appear as alts; "X copies" alts indicate quantity > 1.
+    """
+    results: list[tuple[str, int]] = []
+    for alt in alts:
+        if alt in _SKIP_ALTS or _RARITY_RE.match(alt):
+            continue
+        m = _COPIES_RE.match(alt)
+        if m:
+            if results:
+                name, _ = results[-1]
+                results[-1] = (name, int(m.group(1)))
+            continue
+        # Stop at non-card footer tokens or pack/section names (all-caps multi-word)
+        if alt in _DECK_END_TOKENS:
+            break
+        if "Breakdown" in alt or "Pack" in alt or "Rarity" in alt:
+            continue
+        results.append((alt, 1))
+    return results
+
 
 async def _scrape_masterduelmeta_full_decks() -> int:
     """
-    Scrape sample deck lists from masterduelmeta.com top decks section.
-    Returns number of decks populated.
+    Scrape full deck lists from masterduelmeta.com/top-decks.
+    Card names are extracted from img[alt] attributes on each deck page.
+    Returns number of decks saved.
     """
     try:
         from playwright.async_api import async_playwright
@@ -558,48 +454,42 @@ async def _scrape_masterduelmeta_full_decks() -> int:
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = await browser.new_page()
-            await page.goto(MASTERDUELMETA_DECKS_URL, wait_until="load", timeout=30000)
 
-            # Find deck links
+            # Load top-decks listing
+            await page.goto(MASTERDUELMETA_DECKS_URL, wait_until="domcontentloaded", timeout=60000)
+            await page.wait_for_timeout(5000)
+
             deck_links = await page.eval_on_selector_all(
                 "a[href*='/top-decks/']",
-                "els => [...new Set(els.map(e => e.href).filter(h => h.includes('/top-decks/')))].slice(0, 15)"
+                "els => [...new Set(els.map(e => e.href).filter(h => h.split('/').length >= 8))].slice(0, 30)"
             )
             logger.info("masterduelmeta_deck_links_found", count=len(deck_links))
 
-            for d_url in deck_links[:10]:
+            for d_url in deck_links[:25]:
                 try:
-                    await page.goto(d_url, wait_until="load", timeout=20000)
-                    page_text = await page.inner_text("body")
+                    await page.goto(d_url, wait_until="domcontentloaded", timeout=60000)
+                    await page.wait_for_timeout(4000)
 
-                    title_el = await page.query_selector("h1, [class*='deck-name'], [class*='title']")
-                    deck_name = (await title_el.inner_text()).strip()[:100] if title_el else d_url.split("/")[-1].replace("-", " ").title()
-                    archetype = _infer_archetype(deck_name)
+                    # Get deck name from h1/h2
+                    title_el = await page.query_selector("h1, h2")
+                    deck_name_raw = (await title_el.inner_text()).strip() if title_el else ""
+                    # Extract archetype from URL: /top-decks/{rank}/{date}/{archetype}/...
+                    url_parts = d_url.rstrip("/").split("/")
+                    url_archetype = url_parts[-3] if len(url_parts) >= 3 else ""
+                    archetype = url_archetype.replace("-", " ").title() if url_archetype else _infer_archetype(deck_name_raw)
+                    deck_name = f"{archetype} (Master Duel)"
 
-                    sections: dict[str, list[tuple[str, int]]] = {"main": [], "extra": [], "side": []}
-                    current_section = "main"
-                    for line in page_text.splitlines():
-                        lower = line.strip().lower()
-                        if "extra deck" in lower:
-                            current_section = "extra"
-                        elif "side deck" in lower:
-                            current_section = "side"
-                        elif "main deck" in lower:
-                            current_section = "main"
-                        else:
-                            parsed = _parse_card_lines(line)
-                            sections[current_section].extend(parsed)
+                    alts = await page.eval_on_selector_all("img[alt]", "els => els.map(e => e.alt)")
+                    cards = _parse_mdm_alts(alts)
 
-                    total_cards = sum(len(v) for v in sections.values())
-                    if total_cards >= 10:
+                    if len(cards) >= 10:
                         raw_decks.append({
                             "name": deck_name,
                             "archetype": archetype,
-                            "format": "master_duel",
                             "source_url": d_url,
-                            "sections": sections,
+                            "cards": cards,
                         })
-                        logger.info("masterduelmeta_deck_parsed", name=deck_name, cards=total_cards)
+                        logger.info("masterduelmeta_deck_parsed", name=deck_name, cards=len(cards), url=d_url)
                 except Exception as e:
                     logger.debug("masterduelmeta_deck_parse_error", url=d_url, error=str(e))
 
@@ -608,6 +498,7 @@ async def _scrape_masterduelmeta_full_decks() -> int:
         logger.warning("masterduelmeta_full_scrape_error", error=str(e))
 
     if not raw_decks:
+        logger.info("masterduelmeta_full_decks_none_found")
         return 0
 
     saved = 0
@@ -615,27 +506,22 @@ async def _scrape_masterduelmeta_full_decks() -> int:
         for raw in raw_decks:
             try:
                 deck = await _find_or_create_meta_deck(
-                    db, raw["name"], raw.get("archetype"), raw["format"],
+                    db, raw["name"], raw.get("archetype"), "master_duel",
                     "masterduelmeta.com", raw.get("source_url"),
                 )
-                all_names = [name for section in raw["sections"].values() for name, _ in section]
-                card_map = await _match_cards_by_name(db, all_names)
+                card_map = await _match_cards_by_name(db, [name for name, _ in raw["cards"]])
 
                 entries = []
-                ordering = 0
-                for zone_name in ("main", "extra", "side"):
-                    for card_name, qty in raw["sections"].get(zone_name, []):
-                        card = card_map.get(card_name.lower())
-                        if not card:
-                            continue
-                        actual_zone = _zone_for_card_type(card.card_type) if zone_name != "side" else "side"
-                        entries.append({
-                            "card_id": card.id,
-                            "zone": actual_zone,
-                            "quantity": min(qty, 3),
-                            "ordering": ordering,
-                        })
-                        ordering += 1
+                for i, (card_name, qty) in enumerate(raw["cards"]):
+                    card = card_map.get(card_name.lower())
+                    if not card:
+                        continue
+                    entries.append({
+                        "card_id": card.id,
+                        "zone": _zone_for_card_type(card.card_type),
+                        "quantity": min(qty, 3),
+                        "ordering": i,
+                    })
 
                 if len(entries) >= 10:
                     await _save_full_deck(db, deck.id, entries)
@@ -673,15 +559,13 @@ def scrape_meta_decks_task() -> dict:
     # Phase 3: DB upsert + popularity recalculation in a fresh event loop
     result = asyncio.run(_save_meta_decks(all_decks))
 
-    # Phase 4: scrape full deck lists (each in own loop for Playwright isolation)
-    limitless_full = asyncio.run(_scrape_limitlesstcg_full_decks())
+    # Phase 4: scrape full deck lists from masterduelmeta.com
     mdm_full = asyncio.run(_scrape_masterduelmeta_full_decks())
 
     return {
         "db_archetypes": len(db_decks),
         "masterduelmeta": len(mdm_decks),
         "limitlesstcg": len(limitless_decks),
-        "full_decks_limitlesstcg": limitless_full,
         "full_decks_masterduelmeta": mdm_full,
         **result,
     }
