@@ -1,21 +1,19 @@
-"""Celery task to scrape meta deck tier lists and tournament results.
+"""Celery task to build meta deck tier list from card popularity data.
 
 Sources:
-  1. YGOProDeck top community decks API (JSON, no browser)
-  2. masterduelmeta.com tier list (Playwright, Master Duel format)
-  3. limitlesstcg.com tournament results (Playwright, TCG format)
+  1. Own DB — top archetypes ranked by total card views (always available)
+  2. masterduelmeta.com — Playwright scraper for Master Duel tier list (best-effort)
+  3. limitlesstcg.com — Playwright scraper for TCG tournament data (best-effort)
 
-After scraping, recalculates popularity_score for all cards.
+After running, recalculates popularity_score for all cards.
 """
 from __future__ import annotations
 
 import asyncio
-import math
 import re
-from typing import Any
 
 import httpx
-from sqlalchemy import select, text, and_
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.logging import get_logger
@@ -26,54 +24,64 @@ from app.worker.celery_app import celery_app
 
 logger = get_logger(__name__)
 
-# ─── YGOProDeck API ──────────────────────────────────────────────────────────
 
-YGOPRODECK_TOP_DECKS_URL = (
-    "https://ygoprodeck.com/api/deck/getDeckList.php?num=20&sort=topDecks&format={fmt}"
-)
-YGOPRODECK_FORMATS = [
-    ("tcg", "tcg"),
-    ("ocg", "ocg"),
-    ("master_duel", "master_duel"),
-]
+# ─── Source 1: DB-derived archetypes ─────────────────────────────────────────
+
+async def _archetypes_from_db(format: str = "tcg") -> list[dict]:
+    """
+    Rank archetypes by total card views in our own DB.
+    Assigns S/A/B/C tiers by percentile of the top-50 results.
+    Works for all formats since archetype presence is format-agnostic.
+    """
+    async with async_session() as db:
+        result = await db.execute(
+            select(
+                Card.archetype,
+                func.sum(Card.views).label("total_views"),
+                func.count(Card.id).label("card_count"),
+            )
+            .where(Card.archetype.isnot(None))
+            .group_by(Card.archetype)
+            .having(func.count(Card.id) >= 3)
+            .order_by(func.sum(Card.views).desc())
+            .limit(60)
+        )
+        rows = result.all()
+
+    if not rows:
+        return []
+
+    total = len(rows)
+    decks = []
+    for i, row in enumerate(rows):
+        pct = i / total
+        if pct < 0.10:
+            tier = "S"
+        elif pct < 0.30:
+            tier = "A"
+        elif pct < 0.60:
+            tier = "B"
+        else:
+            tier = "C"
+
+        decks.append({
+            "name": f"{row.archetype} (Meta)",
+            "archetype": row.archetype,
+            "format": format,
+            "tier": tier,
+            "source_name": "card_popularity",
+            "source_url": None,
+            "win_rate": None,
+            "tournament_appearances": 0,
+            "description": None,
+            "extra_data": {"card_count": row.card_count, "total_views": int(row.total_views or 0)},
+        })
+    return decks
 
 
-async def _scrape_ygoprodeck(client: httpx.AsyncClient) -> list[dict]:
-    results = []
-    for fmt_label, fmt_param in YGOPRODECK_FORMATS:
-        try:
-            url = YGOPRODECK_TOP_DECKS_URL.format(fmt=fmt_param)
-            resp = await client.get(url, timeout=15)
-            if resp.status_code != 200:
-                logger.warning("ygoprodeck_top_decks_failed", format=fmt_label, status=resp.status_code)
-                continue
-            data = resp.json()
-            decks = data if isinstance(data, list) else data.get("data", [])
-            for deck in decks:
-                name = deck.get("deck_name") or deck.get("name") or "Unknown"
-                archetype = deck.get("archetype") or deck.get("main_archetype") or _infer_archetype(name)
-                results.append({
-                    "name": name,
-                    "archetype": archetype,
-                    "format": fmt_label,
-                    "tier": None,
-                    "source_name": "ygoprodeck.com",
-                    "source_url": f"https://ygoprodeck.com/decks/?format={fmt_param}",
-                    "win_rate": None,
-                    "tournament_appearances": 0,
-                    "description": None,
-                    "extra_data": {"raw": deck},
-                })
-            logger.info("ygoprodeck_scraped", format=fmt_label, count=len(decks))
-        except Exception as e:
-            logger.error("ygoprodeck_scrape_error", format=fmt_label, error=str(e))
-    return results
-
-
-# ─── masterduelmeta.com (Playwright) ─────────────────────────────────────────
+# ─── Source 2: masterduelmeta.com (Playwright, best-effort) ──────────────────
 
 MASTERDUELMETA_TIER_URL = "https://www.masterduelmeta.com/tier-list"
-# tier section headings map to tier labels
 _MDM_TIER_MAP = {"S Tier": "S", "A Tier": "A", "B Tier": "B", "C Tier": "C"}
 
 
@@ -91,14 +99,16 @@ async def _scrape_masterduelmeta() -> list[dict]:
             page = await browser.new_page()
             await page.goto(MASTERDUELMETA_TIER_URL, wait_until="networkidle", timeout=30000)
 
-            # Each tier section has a heading like "S Tier" and cards beneath it
             for tier_label, tier_code in _MDM_TIER_MAP.items():
                 try:
                     sections = await page.query_selector_all(f"text={tier_label}")
                     for section in sections:
-                        # Walk up to the section container, find sibling deck names
-                        parent = await section.evaluate_handle("el => el.closest('section') || el.parentElement")
-                        deck_els = await parent.query_selector_all("[class*='deck-name'], [class*='archetype'], h3, h4")
+                        parent = await section.evaluate_handle(
+                            "el => el.closest('section') || el.parentElement"
+                        )
+                        deck_els = await parent.query_selector_all(
+                            "[class*='deck-name'], [class*='archetype'], h3, h4"
+                        )
                         for el in deck_els:
                             name = (await el.inner_text()).strip()
                             if name and name not in _MDM_TIER_MAP:
@@ -120,17 +130,16 @@ async def _scrape_masterduelmeta() -> list[dict]:
             await browser.close()
         logger.info("masterduelmeta_scraped", count=len(results))
     except Exception as e:
-        logger.error("masterduelmeta_scrape_error", error=str(e))
+        logger.warning("masterduelmeta_scrape_error", error=str(e))
     return results
 
 
-# ─── limitlesstcg.com (Playwright) ───────────────────────────────────────────
+# ─── Source 3: limitlesstcg.com (Playwright, best-effort) ────────────────────
 
 LIMITLESS_URL = "https://limitlesstcg.com/tournaments?game=YUGIOH"
 
 
 async def _scrape_limitlesstcg() -> list[dict]:
-    """Returns a dict of archetype → tournament_appearances count (TCG format)."""
     try:
         from playwright.async_api import async_playwright  # type: ignore
     except ImportError:
@@ -144,12 +153,10 @@ async def _scrape_limitlesstcg() -> list[dict]:
             page = await browser.new_page()
             await page.goto(LIMITLESS_URL, wait_until="networkidle", timeout=30000)
 
-            # Grab top-8 deck archetype entries from tournament result rows
             rows = await page.query_selector_all("table tbody tr, [class*='tournament-row']")
             for row in rows[:200]:
                 try:
                     text_content = await row.inner_text()
-                    # Heuristic: lines that look like archetype names (Title Case, 3+ chars)
                     for token in re.split(r"\n|\t|\|", text_content):
                         token = token.strip()
                         if 3 <= len(token) <= 50 and re.match(r"^[A-Z][a-zA-Z\s\-']+$", token):
@@ -160,9 +167,8 @@ async def _scrape_limitlesstcg() -> list[dict]:
             await browser.close()
         logger.info("limitlesstcg_scraped", unique_archetypes=len(archetype_counts))
     except Exception as e:
-        logger.error("limitlesstcg_scrape_error", error=str(e))
+        logger.warning("limitlesstcg_scrape_error", error=str(e))
 
-    # Convert to MetaDeck dicts
     results = []
     for archetype, count in archetype_counts.items():
         results.append({
@@ -183,10 +189,8 @@ async def _scrape_limitlesstcg() -> list[dict]:
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def _infer_archetype(name: str) -> str:
-    """Best-effort archetype extraction from a deck name string."""
-    # Strip common suffixes: "Deck", "OTK", "FTK", "Control", etc.
     cleaned = re.sub(
-        r"\b(Deck|Build|Strategy|Guide|OTK|FTK|Control|Combo|Turbo|Pendulum)\b",
+        r"\b(Deck|Build|Strategy|Guide|OTK|FTK|Control|Combo|Turbo|Pendulum|Meta)\b",
         "",
         name,
         flags=re.IGNORECASE,
@@ -195,7 +199,6 @@ def _infer_archetype(name: str) -> str:
 
 
 async def _resolve_key_cards(db, archetype: str | None) -> list:
-    """Return up to 5 card UUIDs for cards matching the archetype, ordered by views."""
     if not archetype:
         return []
     result = await db.execute(
@@ -208,7 +211,6 @@ async def _resolve_key_cards(db, archetype: str | None) -> list:
 
 
 async def _upsert_meta_decks(db, decks: list[dict]) -> int:
-    """Merge deck list into meta_decks, incrementing tournament_appearances where applicable."""
     if not decks:
         return 0
 
@@ -216,25 +218,21 @@ async def _upsert_meta_decks(db, decks: list[dict]) -> int:
     for deck in decks:
         key_card_ids = await _resolve_key_cards(db, deck.get("archetype"))
 
-        # Check existing row by (name, format, source_name)
         existing = await db.execute(
             select(MetaDeck).where(
-                and_(
-                    MetaDeck.name == deck["name"],
-                    MetaDeck.format == deck["format"],
-                    MetaDeck.source_name == deck.get("source_name"),
-                )
+                MetaDeck.name == deck["name"],
+                MetaDeck.format == deck["format"],
+                MetaDeck.source_name == deck.get("source_name"),
             )
         )
-        row = existing.scalar_one_or_none()
+        existing_row = existing.scalar_one_or_none()
 
-        if row:
-            row.tier = deck["tier"] or row.tier
-            row.win_rate = deck["win_rate"] if deck["win_rate"] is not None else row.win_rate
-            row.tournament_appearances += deck.get("tournament_appearances", 0)
-            if key_card_ids:
-                row.key_card_ids = key_card_ids
-            row.extra_data = deck.get("extra_data") or row.extra_data
+        if existing_row:
+            existing_row.tier = deck.get("tier") or existing_row.tier
+            existing_row.tournament_appearances += deck.get("tournament_appearances", 0)
+            existing_row.key_card_ids = key_card_ids or existing_row.key_card_ids
+            if deck.get("win_rate") is not None:
+                existing_row.win_rate = deck["win_rate"]
         else:
             db.add(MetaDeck(
                 name=deck["name"],
@@ -258,8 +256,6 @@ async def _upsert_meta_decks(db, decks: list[dict]) -> int:
 async def _recalculate_popularity_scores(db) -> None:
     """
     popularity_score = 0.6 * log_norm(views) + 0.4 * (meta_deck_presence / max_presence)
-
-    Uses a single UPDATE with window functions via raw SQL.
     """
     await db.execute(text("""
         WITH
@@ -297,13 +293,8 @@ async def _recalculate_popularity_scores(db) -> None:
 
 
 # ─── Celery Task ─────────────────────────────────────────────────────────────
-# Each scraper phase runs in its own asyncio.run() to avoid Playwright
-# corrupting the event loop that asyncpg relies on for DB operations.
-
-async def _fetch_ygoprodeck() -> list[dict]:
-    async with httpx.AsyncClient(headers={"User-Agent": "YGOTools/1.0"}) as client:
-        return await _scrape_ygoprodeck(client)
-
+# Scraping phases each run in their own asyncio.run() so that Playwright
+# teardown cannot corrupt the event loop used by asyncpg in the DB phase.
 
 async def _save_meta_decks(all_decks: list[dict]) -> dict:
     async with async_session() as db:
@@ -314,19 +305,24 @@ async def _save_meta_decks(all_decks: list[dict]) -> dict:
 
 @celery_app.task(name="scrape_meta_decks_task")
 def scrape_meta_decks_task() -> dict:
-    # Phase 1: fetch sources — each in its own clean event loop so Playwright
-    # teardown can't corrupt the loop used by asyncpg in phase 2.
-    ygoprodeck_decks = asyncio.run(_fetch_ygoprodeck())
+    # Phase 1: DB-derived archetypes (TCG + OCG + Master Duel)
+    tcg_decks = asyncio.run(_archetypes_from_db("tcg"))
+    ocg_decks = asyncio.run(_archetypes_from_db("ocg"))
+    md_decks = asyncio.run(_archetypes_from_db("master_duel"))
+    db_decks = tcg_decks + ocg_decks + md_decks
+    logger.info("db_archetypes_derived", count=len(db_decks))
+
+    # Phase 2: best-effort external scrapers (each in own loop to isolate Playwright)
     mdm_decks = asyncio.run(_scrape_masterduelmeta())
     limitless_decks = asyncio.run(_scrape_limitlesstcg())
 
-    all_decks = ygoprodeck_decks + mdm_decks + limitless_decks
-    logger.info("meta_decks_total_scraped", count=len(all_decks))
+    all_decks = db_decks + mdm_decks + limitless_decks
+    logger.info("meta_decks_total", count=len(all_decks))
 
-    # Phase 2: DB upsert + popularity recalculation in a fresh event loop.
+    # Phase 3: DB upsert + popularity recalculation in a fresh event loop
     result = asyncio.run(_save_meta_decks(all_decks))
     return {
-        "ygoprodeck": len(ygoprodeck_decks),
+        "db_archetypes": len(db_decks),
         "masterduelmeta": len(mdm_decks),
         "limitlesstcg": len(limitless_decks),
         **result,
