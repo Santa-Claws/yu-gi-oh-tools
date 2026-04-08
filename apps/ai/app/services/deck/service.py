@@ -18,7 +18,11 @@ class DeckService:
     async def _get_owned(self, deck_id: UUID, user_id: UUID) -> Deck | None:
         result = await self.db.execute(
             select(Deck)
-            .options(selectinload(Deck.cards))
+            .options(
+                selectinload(Deck.cards)
+                .selectinload(DeckCard.card)
+                .selectinload(Card.prints)
+            )
             .where(Deck.id == deck_id, Deck.user_id == user_id)
         )
         return result.scalar_one_or_none()

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { CardTile } from "@/components/cards/CardTile";
+import { DeckViewer } from "@/components/decks/DeckViewer";
 import { usePopularDecks, usePopularCards } from "@/hooks/useMeta";
 import type { MetaDeck } from "@/types/meta";
 
@@ -17,7 +18,7 @@ const TIER_STYLES: Record<string, string> = {
 const FORMATS = ["tcg", "ocg", "master_duel"] as const;
 const TIERS = ["S", "A", "B", "C"] as const;
 
-function MetaDeckCard({ deck }: { deck: MetaDeck }) {
+function MetaDeckCard({ deck, onView }: { deck: MetaDeck; onView: (deck: MetaDeck) => void }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
@@ -67,21 +68,31 @@ function MetaDeckCard({ deck }: { deck: MetaDeck }) {
         </div>
       )}
 
-      {deck.source_name && (
-        <div className="text-xs text-gray-400 flex items-center justify-between">
-          <span>{deck.source_name}</span>
-          {deck.source_url && (
-            <a
-              href={deck.source_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-500 hover:underline"
-            >
-              View source ↗
-            </a>
-          )}
-        </div>
-      )}
+      <div className="flex items-center justify-between">
+        {deck.source_name ? (
+          <div className="text-xs text-gray-400 flex items-center gap-2">
+            <span>{deck.source_name}</span>
+            {deck.source_url && (
+              <a
+                href={deck.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-500 hover:underline"
+              >
+                View source ↗
+              </a>
+            )}
+          </div>
+        ) : <span />}
+        {deck.key_cards.length > 0 && (
+          <button
+            onClick={() => onView(deck)}
+            className="rounded-lg bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+          >
+            View cards
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -89,6 +100,7 @@ function MetaDeckCard({ deck }: { deck: MetaDeck }) {
 export default function PopularPage() {
   const [format, setFormat] = useState<string>("tcg");
   const [tier, setTier] = useState<string | undefined>(undefined);
+  const [viewingDeck, setViewingDeck] = useState<MetaDeck | null>(null);
 
   const { data: cardsData, isLoading: cardsLoading } = usePopularCards(format);
   const { data: decksData, isLoading: decksLoading } = usePopularDecks(format, tier);
@@ -176,11 +188,19 @@ export default function PopularPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {decksData.decks.map((deck) => (
-              <MetaDeckCard key={deck.id} deck={deck} />
+              <MetaDeckCard key={deck.id} deck={deck} onView={setViewingDeck} />
             ))}
           </div>
         )}
       </section>
+
+      {viewingDeck && (
+        <DeckViewer
+          type="meta"
+          deck={viewingDeck}
+          onClose={() => setViewingDeck(null)}
+        />
+      )}
     </div>
   );
 }

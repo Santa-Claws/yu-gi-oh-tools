@@ -1,13 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useDecks, useDeleteDeck } from "@/hooks/useDecks";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DeckViewer } from "@/components/decks/DeckViewer";
 
 export default function DecksPage() {
   const { data: decks, isLoading } = useDecks();
   const deleteDeck = useDeleteDeck();
+  const [viewingDeck, setViewingDeck] = useState<{ id: string; name: string } | null>(null);
 
   if (isLoading) return <div className="py-20 text-center text-gray-400">Loading...</div>;
 
@@ -54,6 +57,13 @@ export default function DecksPage() {
             )}
 
             <div className="mt-4 flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setViewingDeck({ id: deck.id, name: deck.name })}
+              >
+                View
+              </Button>
               <Link href={`/decks/${deck.id}`} className="flex-1">
                 <Button variant="outline" size="sm" className="w-full">Edit</Button>
               </Link>
@@ -71,6 +81,15 @@ export default function DecksPage() {
           </div>
         ))}
       </div>
+
+      {viewingDeck && (
+        <DeckViewer
+          type="user"
+          deckId={viewingDeck.id}
+          deckName={viewingDeck.name}
+          onClose={() => setViewingDeck(null)}
+        />
+      )}
     </div>
   );
 }

@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.schemas.card import CardOut
+
 
 class DeckCardIn(BaseModel):
     card_id: UUID
@@ -20,6 +22,7 @@ class DeckCardOut(BaseModel):
     quantity: int
     ordering: int
     notes: str | None
+    card: CardOut | None = None
 
     model_config = {"from_attributes": True}
 

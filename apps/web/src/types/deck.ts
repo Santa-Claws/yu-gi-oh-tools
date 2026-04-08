@@ -1,3 +1,5 @@
+import type { Card } from "./card";
+
 export interface DeckCard {
   id: string;
   card_id: string;
@@ -5,6 +7,7 @@ export interface DeckCard {
   quantity: number;
   ordering: number;
   notes: string | null;
+  card?: Card;
 }
 
 export interface Deck {
