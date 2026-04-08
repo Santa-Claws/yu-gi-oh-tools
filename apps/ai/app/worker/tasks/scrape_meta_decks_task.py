@@ -297,30 +297,37 @@ async def _recalculate_popularity_scores(db) -> None:
 
 
 # ─── Celery Task ─────────────────────────────────────────────────────────────
+# Each scraper phase runs in its own asyncio.run() to avoid Playwright
+# corrupting the event loop that asyncpg relies on for DB operations.
 
-async def _run_scrape_meta_decks() -> dict:
+async def _fetch_ygoprodeck() -> list[dict]:
+    async with httpx.AsyncClient(headers={"User-Agent": "YGOTools/1.0"}) as client:
+        return await _scrape_ygoprodeck(client)
+
+
+async def _save_meta_decks(all_decks: list[dict]) -> dict:
     async with async_session() as db:
-        async with httpx.AsyncClient(headers={"User-Agent": "YGOTools/1.0"}) as client:
-            ygoprodeck_decks = await _scrape_ygoprodeck(client)
-
-        # Run Playwright scrapers sequentially (each launches its own browser)
-        mdm_decks = await _scrape_masterduelmeta()
-        limitless_decks = await _scrape_limitlesstcg()
-
-        all_decks = ygoprodeck_decks + mdm_decks + limitless_decks
-        logger.info("meta_decks_total_scraped", count=len(all_decks))
-
         upserted = await _upsert_meta_decks(db, all_decks)
         await _recalculate_popularity_scores(db)
-
-        return {
-            "ygoprodeck": len(ygoprodeck_decks),
-            "masterduelmeta": len(mdm_decks),
-            "limitlesstcg": len(limitless_decks),
-            "total_upserted": upserted,
-        }
+        return {"total_upserted": upserted}
 
 
 @celery_app.task(name="scrape_meta_decks_task")
 def scrape_meta_decks_task() -> dict:
-    return asyncio.run(_run_scrape_meta_decks())
+    # Phase 1: fetch sources — each in its own clean event loop so Playwright
+    # teardown can't corrupt the loop used by asyncpg in phase 2.
+    ygoprodeck_decks = asyncio.run(_fetch_ygoprodeck())
+    mdm_decks = asyncio.run(_scrape_masterduelmeta())
+    limitless_decks = asyncio.run(_scrape_limitlesstcg())
+
+    all_decks = ygoprodeck_decks + mdm_decks + limitless_decks
+    logger.info("meta_decks_total_scraped", count=len(all_decks))
+
+    # Phase 2: DB upsert + popularity recalculation in a fresh event loop.
+    result = asyncio.run(_save_meta_decks(all_decks))
+    return {
+        "ygoprodeck": len(ygoprodeck_decks),
+        "masterduelmeta": len(mdm_decks),
+        "limitlesstcg": len(limitless_decks),
+        **result,
+    }
