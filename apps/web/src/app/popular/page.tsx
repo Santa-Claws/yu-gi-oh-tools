@@ -52,11 +52,18 @@ function MetaDeckCard({
     if (!getToken()) { alert("Please log in to save decks."); return; }
     setSaveStatus("saving");
     try {
+      const cards = deck.has_full_list
+        ? [
+            ...deck.main_deck.map((dc, i) => ({ card_id: dc.card_id, zone: "main", quantity: dc.quantity, ordering: i })),
+            ...deck.extra_deck.map((dc, i) => ({ card_id: dc.card_id, zone: "extra", quantity: dc.quantity, ordering: deck.main_deck.length + i })),
+            ...deck.side_deck.map((dc, i) => ({ card_id: dc.card_id, zone: "side", quantity: dc.quantity, ordering: deck.main_deck.length + deck.extra_deck.length + i })),
+          ]
+        : deck.key_cards.map((c, i) => ({ card_id: c.id, zone: "main", quantity: 1, ordering: i }));
       await saveMetaDeck.mutateAsync({
         name: deck.name,
         format: deck.format,
         archetype: deck.archetype,
-        cardIds: deck.key_cards.map((c) => c.id),
+        cards,
       });
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);

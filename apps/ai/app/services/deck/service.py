@@ -52,9 +52,9 @@ class DeckService:
         )
         self.db.add(deck)
         await self.db.commit()
-        await self.db.refresh(deck, ["cards"])
-        _set_zone_counts(deck)
-        return deck
+        fetched = await self._get_owned(deck.id, user_id)
+        _set_zone_counts(fetched)
+        return fetched
 
     async def get(self, deck_id: UUID, user_id: UUID) -> Deck | None:
         deck = await self._get_owned(deck_id, user_id)
@@ -69,9 +69,9 @@ class DeckService:
         for field, value in data.model_dump(exclude_none=True).items():
             setattr(deck, field, value)
         await self.db.commit()
-        await self.db.refresh(deck, ["cards"])
-        _set_zone_counts(deck)
-        return deck
+        fetched = await self._get_owned(deck_id, user_id)
+        _set_zone_counts(fetched)
+        return fetched
 
     async def delete(self, deck_id: UUID, user_id: UUID) -> bool:
         deck = await self._get_owned(deck_id, user_id)
@@ -101,9 +101,9 @@ class DeckService:
             )
             self.db.add(dc)
         await self.db.commit()
-        await self.db.refresh(deck, ["cards"])
-        _set_zone_counts(deck)
-        return deck
+        fetched = await self._get_owned(deck_id, user_id)
+        _set_zone_counts(fetched)
+        return fetched
 
     async def remove_card(self, deck_id: UUID, card_entry_id: UUID, user_id: UUID) -> Deck | None:
         deck = await self._get_owned(deck_id, user_id)
@@ -116,9 +116,9 @@ class DeckService:
         if entry:
             await self.db.delete(entry)
             await self.db.commit()
-        await self.db.refresh(deck, ["cards"])
-        _set_zone_counts(deck)
-        return deck
+        fetched = await self._get_owned(deck_id, user_id)
+        _set_zone_counts(fetched)
+        return fetched
 
     async def save_version(self, deck_id: UUID, note: str | None, user_id: UUID) -> DeckVersion | None:
         deck = await self._get_owned(deck_id, user_id)

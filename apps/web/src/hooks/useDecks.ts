@@ -77,21 +77,16 @@ export function useSaveMetaDeck() {
       name: string;
       format: string;
       archetype?: string | null;
-      cardIds: string[];
+      cards: { card_id: string; zone: string; quantity: number; ordering: number }[];
     }) => {
       const newDeck = await authFetch<DeckDetail>("/decks", {
         method: "POST",
         body: { name: params.name, format: params.format, archetype: params.archetype },
       });
-      if (params.cardIds.length > 0) {
+      if (params.cards.length > 0) {
         await authFetch<DeckDetail>(`/decks/${newDeck.id}/cards`, {
           method: "POST",
-          body: params.cardIds.map((card_id, i) => ({
-            card_id,
-            zone: "main",
-            quantity: 1,
-            ordering: i,
-          })),
+          body: params.cards,
         });
       }
       return newDeck;

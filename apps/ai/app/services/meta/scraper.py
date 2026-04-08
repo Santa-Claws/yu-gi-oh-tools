@@ -34,7 +34,7 @@ class MetaScraperService:
                 .selectinload(MetaDeckCard.card)
                 .selectinload(Card.prints)
             )
-            .where(MetaDeck.format == format)
+            .where(MetaDeck.format == format, MetaDeck.has_full_list.is_(True))
         )
         if tier:
             query = query.where(MetaDeck.tier == tier.upper())
@@ -43,7 +43,7 @@ class MetaScraperService:
         query = query.order_by(_TIER_ORDER, MetaDeck.tournament_appearances.desc())
 
         total_result = await self.db.execute(
-            select(MetaDeck).where(MetaDeck.format == format)
+            select(MetaDeck).where(MetaDeck.format == format, MetaDeck.has_full_list.is_(True))
         )
         total = len(total_result.scalars().all())
 
