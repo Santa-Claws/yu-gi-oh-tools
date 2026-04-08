@@ -34,18 +34,20 @@ class CardSearchService:
         conditions = []
 
         if params.q:
-            # Trigram-based fuzzy search on name, OR semantic match later
-            conditions.append(
-                or_(
-                    Card.name_en.ilike(f"%{params.q}%"),
-                    Card.name_ja.ilike(f"%{params.q}%"),
-                    Card.effect_text.ilike(f"%{params.q}%"),
+            # Split into words; each word must match at least one field (AND across words)
+            words = params.q.split()
+            for word in words:
+                conditions.append(
+                    or_(
+                        Card.name_en.ilike(f"%{word}%"),
+                        Card.name_ja.ilike(f"%{word}%"),
+                        Card.effect_text.ilike(f"%{word}%"),
+                    )
                 )
-            )
         if params.card_type:
             conditions.append(Card.card_type == params.card_type)
         if params.attribute:
-            conditions.append(Card.attribute == params.attribute)
+            conditions.append(Card.attribute == params.attribute.lower())
         if params.monster_type:
             conditions.append(Card.monster_type == params.monster_type)
         if params.race:

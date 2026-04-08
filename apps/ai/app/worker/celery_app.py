@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.worker.tasks.import_tasks",
         "app.worker.tasks.scrape_tasks",
         "app.worker.tasks.embed_tasks",
+        "app.worker.tasks.scrape_meta_decks_task",
     ],
 )
 
