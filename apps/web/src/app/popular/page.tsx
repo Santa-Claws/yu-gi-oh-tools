@@ -84,14 +84,12 @@ function MetaDeckCard({ deck, onView }: { deck: MetaDeck; onView: (deck: MetaDec
             )}
           </div>
         ) : <span />}
-        {deck.key_cards.length > 0 && (
-          <button
-            onClick={() => onView(deck)}
-            className="rounded-lg bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 transition-colors"
-          >
-            View cards
-          </button>
-        )}
+        <button
+          onClick={() => onView(deck)}
+          className="rounded-lg bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+        >
+          View cards
+        </button>
       </div>
     </div>
   );
