@@ -108,9 +108,9 @@ async def _scrape_masterduelmeta() -> list[dict]:
     results = []
     try:
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
+            browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = await browser.new_page()
-            await page.goto(MASTERDUELMETA_TIER_URL, wait_until="networkidle", timeout=30000)
+            await page.goto(MASTERDUELMETA_TIER_URL, wait_until="load", timeout=30000)
 
             for tier_label, tier_code in _MDM_TIER_MAP.items():
                 try:
@@ -162,9 +162,9 @@ async def _scrape_limitlesstcg() -> list[dict]:
     archetype_counts: dict[str, int] = {}
     try:
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
+            browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = await browser.new_page()
-            await page.goto(LIMITLESS_URL, wait_until="networkidle", timeout=30000)
+            await page.goto(LIMITLESS_URL, wait_until="load", timeout=30000)
 
             rows = await page.query_selector_all("table tbody tr, [class*='tournament-row']")
             for row in rows[:200]:
@@ -417,9 +417,9 @@ async def _scrape_limitlesstcg_full_decks() -> int:
 
     try:
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
+            browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = await browser.new_page()
-            await page.goto(LIMITLESS_TOURNAMENTS_URL, wait_until="networkidle", timeout=30000)
+            await page.goto(LIMITLESS_TOURNAMENTS_URL, wait_until="load", timeout=30000)
 
             # Find recent tournament links
             t_links = await page.eval_on_selector_all(
@@ -433,7 +433,7 @@ async def _scrape_limitlesstcg_full_decks() -> int:
 
             for t_url in t_links[:5]:
                 try:
-                    await page.goto(t_url, wait_until="networkidle", timeout=30000)
+                    await page.goto(t_url, wait_until="load", timeout=30000)
 
                     # Find deck/placement links within this tournament
                     deck_links = await page.eval_on_selector_all(
@@ -446,7 +446,7 @@ async def _scrape_limitlesstcg_full_decks() -> int:
 
                     for d_url in deck_links[:8]:
                         try:
-                            await page.goto(d_url, wait_until="networkidle", timeout=20000)
+                            await page.goto(d_url, wait_until="load", timeout=20000)
                             page_text = await page.inner_text("body")
 
                             # Extract deck name from title or heading
@@ -556,9 +556,9 @@ async def _scrape_masterduelmeta_full_decks() -> int:
 
     try:
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
+            browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = await browser.new_page()
-            await page.goto(MASTERDUELMETA_DECKS_URL, wait_until="networkidle", timeout=30000)
+            await page.goto(MASTERDUELMETA_DECKS_URL, wait_until="load", timeout=30000)
 
             # Find deck links
             deck_links = await page.eval_on_selector_all(
@@ -569,7 +569,7 @@ async def _scrape_masterduelmeta_full_decks() -> int:
 
             for d_url in deck_links[:10]:
                 try:
-                    await page.goto(d_url, wait_until="networkidle", timeout=20000)
+                    await page.goto(d_url, wait_until="load", timeout=20000)
                     page_text = await page.inner_text("body")
 
                     title_el = await page.query_selector("h1, [class*='deck-name'], [class*='title']")
