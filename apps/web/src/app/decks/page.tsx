@@ -6,6 +6,24 @@ import { useDecks, useDeleteDeck } from "@/hooks/useDecks";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DeckViewer } from "@/components/decks/DeckViewer";
+import { getToken } from "@/lib/auth";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+async function exportUserDeck(deckId: string, deckName: string) {
+  const token = getToken();
+  const res = await fetch(`${API_URL}/decks/${deckId}/export?format=text`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const text = await res.text();
+  const blob = new Blob([text], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${deckName}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function DecksPage() {
   const { data: decks, isLoading } = useDecks();
@@ -63,6 +81,13 @@ export default function DecksPage() {
                 onClick={() => setViewingDeck({ id: deck.id, name: deck.name })}
               >
                 View
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => exportUserDeck(deck.id, deck.name)}
+              >
+                Export
               </Button>
               <Link href={`/decks/${deck.id}`} className="flex-1">
                 <Button variant="outline" size="sm" className="w-full">Edit</Button>

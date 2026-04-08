@@ -6,6 +6,8 @@ import Link from "next/link";
 import { CardTile } from "@/components/cards/CardTile";
 import { DeckViewer } from "@/components/decks/DeckViewer";
 import { usePopularDecks, usePopularCards } from "@/hooks/useMeta";
+import { useSaveMetaDeck } from "@/hooks/useDecks";
+import { getToken } from "@/lib/auth";
 import type { MetaDeck } from "@/types/meta";
 
 const TIER_STYLES: Record<string, string> = {
@@ -18,7 +20,52 @@ const TIER_STYLES: Record<string, string> = {
 const FORMATS = ["tcg", "ocg", "master_duel"] as const;
 const TIERS = ["S", "A", "B", "C"] as const;
 
-function MetaDeckCard({ deck, onView }: { deck: MetaDeck; onView: (deck: MetaDeck) => void }) {
+function exportMetaDeckAsText(deck: MetaDeck) {
+  const lines = [
+    `# ${deck.name}`,
+    `# Format: ${deck.format}`,
+    ...(deck.tier ? [`# Tier: ${deck.tier}`] : []),
+    "",
+    "[Main Deck]",
+    ...deck.key_cards.map((c) => `1x ${c.name_en}`),
+  ];
+  const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${deck.name}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function MetaDeckCard({
+  deck,
+  onView,
+}: {
+  deck: MetaDeck;
+  onView: (deck: MetaDeck) => void;
+}) {
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const saveMetaDeck = useSaveMetaDeck();
+
+  async function handleSave() {
+    if (!getToken()) { alert("Please log in to save decks."); return; }
+    setSaveStatus("saving");
+    try {
+      await saveMetaDeck.mutateAsync({
+        name: deck.name,
+        format: deck.format,
+        archetype: deck.archetype,
+        cardIds: deck.key_cards.map((c) => c.id),
+      });
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch {
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    }
+  }
+
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
@@ -68,27 +115,42 @@ function MetaDeckCard({ deck, onView }: { deck: MetaDeck; onView: (deck: MetaDec
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        {deck.source_name ? (
-          <div className="text-xs text-gray-400 flex items-center gap-2">
-            <span>{deck.source_name}</span>
-            {deck.source_url && (
-              <a
-                href={deck.source_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-500 hover:underline"
-              >
-                View source ↗
-              </a>
-            )}
-          </div>
-        ) : <span />}
+      {deck.source_name && (
+        <div className="text-xs text-gray-400 flex items-center gap-2">
+          <span>{deck.source_name}</span>
+          {deck.source_url && (
+            <a href={deck.source_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+              View source ↗
+            </a>
+          )}
+        </div>
+      )}
+
+      <div className="flex gap-2">
         <button
           onClick={() => onView(deck)}
-          className="rounded-lg bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+          className="flex-1 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-200 transition-colors"
         >
           View cards
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saveStatus === "saving"}
+          className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            saveStatus === "saved"
+              ? "bg-green-100 text-green-700"
+              : saveStatus === "error"
+              ? "bg-red-100 text-red-700"
+              : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+          }`}
+        >
+          {saveStatus === "saving" ? "Saving…" : saveStatus === "saved" ? "Saved!" : saveStatus === "error" ? "Failed" : "Save to Decks"}
+        </button>
+        <button
+          onClick={() => exportMetaDeckAsText(deck)}
+          className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+        >
+          Export
         </button>
       </div>
     </div>
