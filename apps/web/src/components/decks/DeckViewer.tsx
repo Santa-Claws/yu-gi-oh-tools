@@ -5,7 +5,7 @@ import { CardTile } from "@/components/cards/CardTile";
 import { useDeck, useSaveMetaDeck } from "@/hooks/useDecks";
 import { getToken } from "@/lib/auth";
 import type { Card } from "@/types/card";
-import type { MetaDeck } from "@/types/meta";
+import type { MetaDeck, MetaDeckCard } from "@/types/meta";
 
 const TIER_STYLES: Record<string, string> = {
   S: "bg-yellow-400 text-yellow-900",
@@ -20,14 +20,17 @@ type DeckViewerProps =
   | { type: "user"; deckId: string; deckName: string; onClose: () => void }
   | { type: "meta"; deck: MetaDeck; onClose: () => void };
 
-function CardZoneSection({ label, cards }: { label: string; cards: Card[] }) {
+function CardZoneSection({ label, cards, dense = false }: { label: string; cards: Card[]; dense?: boolean }) {
   if (!cards.length) return null;
   return (
     <section>
       <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
         {label} <span className="text-gray-400 font-normal">({cards.length})</span>
       </h3>
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+      <div className={dense
+        ? "grid grid-cols-6 sm:grid-cols-7 md:grid-cols-8 lg:grid-cols-10 gap-1"
+        : "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2"
+      }>
         {cards.map((card, i) => (
           <CardTile key={`${card.id}-${i}`} card={card} compact />
         ))}
@@ -97,6 +100,28 @@ function UserDeckBody({ deckId }: { deckId: string }) {
       <CardZoneSection label="Main Deck" cards={mainCards} />
       <CardZoneSection label="Extra Deck" cards={extraCards} />
       <CardZoneSection label="Side Deck" cards={sideCards} />
+    </div>
+  );
+}
+
+function MetaDeckBody({ deck }: { deck: MetaDeck }) {
+  if (deck.has_full_list) {
+    const toCards = (entries: MetaDeckCard[]) =>
+      entries.flatMap((dc) => dc.card ? Array(dc.quantity).fill(dc.card) as Card[] : []);
+    return (
+      <div className="space-y-6">
+        <CardZoneSection label="Main Deck" cards={toCards(deck.main_deck)} dense />
+        <CardZoneSection label="Extra Deck" cards={toCards(deck.extra_deck)} dense />
+        <CardZoneSection label="Side Deck" cards={toCards(deck.side_deck)} dense />
+      </div>
+    );
+  }
+  if (deck.key_cards.length > 0) {
+    return <CardZoneSection label="Key Cards" cards={deck.key_cards} dense />;
+  }
+  return (
+    <div className="flex items-center justify-center py-16 text-gray-400">
+      No card data available for this deck.
     </div>
   );
 }
@@ -211,13 +236,7 @@ export function DeckViewer(props: DeckViewerProps) {
           {props.type === "user" ? (
             <UserDeckBody deckId={props.deckId} />
           ) : (
-            props.deck.key_cards.length > 0 ? (
-              <CardZoneSection label="Key Cards" cards={props.deck.key_cards} />
-            ) : (
-              <div className="flex items-center justify-center py-16 text-gray-400">
-                No card data available for this deck.
-              </div>
-            )
+            <MetaDeckBody deck={props.deck} />
           )}
         </div>
       </div>

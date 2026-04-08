@@ -1,7 +1,9 @@
 import uuid
+from datetime import datetime
+
 from sqlalchemy import (
     Boolean, Column, DateTime, Enum, Float, ForeignKey, Integer,
-    Numeric, String, Text, func,
+    Numeric, SmallInteger, String, Text, func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -62,6 +64,20 @@ class DocumentEmbedding(Base):
     document = relationship("ScrapedDocument", back_populates="embeddings")
 
 
+class MetaDeckCard(Base):
+    __tablename__ = "meta_deck_cards"
+
+    id           = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    meta_deck_id = Column(UUID(as_uuid=True), ForeignKey("meta_decks.id", ondelete="CASCADE"), nullable=False)
+    card_id      = Column(UUID(as_uuid=True), ForeignKey("cards.id", ondelete="CASCADE"), nullable=False)
+    zone         = Column(Text, nullable=False, default="main")
+    quantity     = Column(SmallInteger, nullable=False, default=1)
+    ordering     = Column(Integer, nullable=False, default=0)
+    created_at   = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    card = relationship("Card", lazy="noload")
+
+
 class MetaDeck(Base):
     __tablename__ = "meta_decks"
 
@@ -75,8 +91,11 @@ class MetaDeck(Base):
     win_rate = Column(Float)
     tournament_appearances = Column(Integer, nullable=False, default=0)
     key_card_ids = Column(ARRAY(UUID(as_uuid=True)))
+    has_full_list = Column(Boolean, nullable=False, default=False)
     description = Column(Text)
     extra_data = Column(JSONB, default=dict)
     scraped_at = Column(DateTime(timezone=True), server_default=func.now())
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    cards = relationship("MetaDeckCard", lazy="noload", cascade="all, delete-orphan", order_by="MetaDeckCard.ordering")

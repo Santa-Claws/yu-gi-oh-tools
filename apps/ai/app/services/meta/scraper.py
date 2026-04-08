@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.logging import get_logger
 from app.models.card import Card
-from app.models.meta import MetaDeck, MetaSource, ScrapedDocument
+from app.models.meta import MetaDeck, MetaDeckCard, MetaSource, ScrapedDocument
 from app.schemas.card import CardOut
 
 logger = get_logger(__name__)
@@ -27,7 +27,15 @@ class MetaScraperService:
         page: int = 1,
         page_size: int = 20,
     ) -> dict:
-        query = select(MetaDeck).where(MetaDeck.format == format)
+        query = (
+            select(MetaDeck)
+            .options(
+                selectinload(MetaDeck.cards)
+                .selectinload(MetaDeckCard.card)
+                .selectinload(Card.prints)
+            )
+            .where(MetaDeck.format == format)
+        )
         if tier:
             query = query.where(MetaDeck.tier == tier.upper())
         if archetype:
@@ -46,6 +54,21 @@ class MetaScraperService:
         out = []
         for deck in decks:
             key_cards = await self._resolve_cards(deck.key_card_ids or [])
+
+            def _card_entry(dc: MetaDeckCard) -> dict | None:
+                if not dc.card:
+                    return None
+                return {
+                    "card_id": str(dc.card_id),
+                    "zone": dc.zone,
+                    "quantity": dc.quantity,
+                    "ordering": dc.ordering,
+                    "card": CardOut.model_validate(dc.card).model_dump(by_alias=True),
+                }
+
+            zone_cards = [_card_entry(dc) for dc in deck.cards if dc.card]
+            zone_cards = [e for e in zone_cards if e]
+
             out.append({
                 "id": str(deck.id),
                 "name": deck.name,
@@ -56,7 +79,11 @@ class MetaScraperService:
                 "source_url": deck.source_url,
                 "win_rate": deck.win_rate,
                 "tournament_appearances": deck.tournament_appearances,
+                "has_full_list": deck.has_full_list,
                 "key_cards": [CardOut.model_validate(c).model_dump(by_alias=True) for c in key_cards],
+                "main_deck": [e for e in zone_cards if e["zone"] == "main"],
+                "extra_deck": [e for e in zone_cards if e["zone"] == "extra"],
+                "side_deck": [e for e in zone_cards if e["zone"] == "side"],
                 "description": deck.description,
                 "scraped_at": deck.scraped_at.isoformat() if deck.scraped_at else None,
             })

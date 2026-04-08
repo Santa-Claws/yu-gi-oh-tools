@@ -246,6 +246,23 @@ CREATE INDEX idx_meta_decks_format_tier ON meta_decks (format, tier);
 CREATE INDEX idx_meta_decks_scraped_at ON meta_decks (scraped_at DESC);
 CREATE INDEX idx_meta_decks_archetype ON meta_decks (archetype);
 
+ALTER TABLE meta_decks ADD COLUMN IF NOT EXISTS has_full_list BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ─── Meta Deck Cards (full card lists for meta decks) ────────────────────────
+
+CREATE TABLE meta_deck_cards (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  meta_deck_id UUID NOT NULL REFERENCES meta_decks(id) ON DELETE CASCADE,
+  card_id      UUID NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  zone         TEXT NOT NULL DEFAULT 'main',
+  quantity     SMALLINT NOT NULL DEFAULT 1,
+  ordering     INTEGER NOT NULL DEFAULT 0,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_meta_deck_cards_deck_id ON meta_deck_cards (meta_deck_id);
+CREATE UNIQUE INDEX idx_meta_deck_cards_unique ON meta_deck_cards (meta_deck_id, card_id, zone);
+
 -- ─── Document Embeddings (meta/community content) ────────────────────────────
 
 CREATE TABLE document_embeddings (
