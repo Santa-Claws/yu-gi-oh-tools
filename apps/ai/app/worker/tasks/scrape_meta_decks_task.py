@@ -15,14 +15,27 @@ import re
 import httpx
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.db.session import AsyncSessionLocal as async_session
 from app.models.card import Card
 from app.models.meta import MetaDeck
 from app.worker.celery_app import celery_app
 
 logger = get_logger(__name__)
+
+
+def _make_task_session():
+    """Create a fresh session factory with NullPool for each asyncio.run() call.
+    NullPool avoids asyncpg connections being cached across different event loops."""
+    settings = get_settings()
+    url = settings.database_url
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    engine = create_async_engine(url, poolclass=NullPool)
+    return async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
 # ─── Source 1: DB-derived archetypes ─────────────────────────────────────────
@@ -33,7 +46,7 @@ async def _archetypes_from_db(format: str = "tcg") -> list[dict]:
     Assigns S/A/B/C tiers by percentile of the top-50 results.
     Works for all formats since archetype presence is format-agnostic.
     """
-    async with async_session() as db:
+    async with _make_task_session()() as db:
         result = await db.execute(
             select(
                 Card.archetype,
@@ -297,7 +310,7 @@ async def _recalculate_popularity_scores(db) -> None:
 # teardown cannot corrupt the event loop used by asyncpg in the DB phase.
 
 async def _save_meta_decks(all_decks: list[dict]) -> dict:
-    async with async_session() as db:
+    async with _make_task_session()() as db:
         upserted = await _upsert_meta_decks(db, all_decks)
         await _recalculate_popularity_scores(db)
         return {"total_upserted": upserted}
