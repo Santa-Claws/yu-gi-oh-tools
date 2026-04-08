@@ -19,7 +19,7 @@ from sqlalchemy import select, text, and_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.logging import get_logger
-from app.db.session import async_session
+from app.db.session import AsyncSessionLocal as async_session
 from app.models.card import Card
 from app.models.meta import MetaDeck
 from app.worker.celery_app import celery_app
