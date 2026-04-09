@@ -362,6 +362,25 @@ async def _match_cards_by_name(db: AsyncSession, names: list[str]) -> dict[str, 
     return {c.name_en.lower(): c for c in result.scalars().all()}
 
 
+def _count_card_ids(id_list: list) -> dict[int, int]:
+    """Count repeated IDs — YGOPRODeck repeats card IDs for quantity."""
+    counts: dict[int, int] = {}
+    for raw_id in id_list:
+        try:
+            cid = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        counts[cid] = counts.get(cid, 0) + 1
+    return counts
+
+
+async def _match_cards_by_ygoprodeck_id(db: AsyncSession, ids: list[int]) -> dict[int, Card]:
+    if not ids:
+        return {}
+    result = await db.execute(select(Card).where(Card.ygoprodeck_id.in_(ids)))
+    return {c.ygoprodeck_id: c for c in result.scalars().all()}
+
+
 async def _save_full_deck(db: AsyncSession, meta_deck_id, entries: list[dict]) -> None:
     """Delete existing card list for deck and insert new one, set has_full_list=True."""
     await db.execute(
@@ -533,6 +552,93 @@ async def _scrape_masterduelmeta_full_decks() -> int:
     return saved
 
 
+# ─── Full deck list scraping: ygoprodeck.com (TCG) ───────────────────────────
+
+YGOPRODECK_DECKS_URL = "https://ygoprodeck.com/api/decks/getDecks.php"
+
+
+async def _scrape_ygoprodeck_tcg_decks() -> int:
+    """
+    Fetch TCG tournament meta decks from the YGOPRODeck JSON API.
+    No Playwright needed — plain httpx GET.
+    Card IDs (ygoprodeck_id integers) are repeated for quantity; zones are pre-split.
+    Returns number of decks saved.
+    """
+    params = {
+        "num": "50",
+        "offset": "0",
+        "type": "Tournament Meta Decks",
+        "format": "TCG",
+        "sort": "Popularity",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(YGOPRODECK_DECKS_URL, params=params)
+            resp.raise_for_status()
+            decks_json = resp.json()
+    except Exception as e:
+        logger.warning("ygoprodeck_fetch_error", error=str(e))
+        return 0
+
+    if not isinstance(decks_json, list):
+        logger.warning("ygoprodeck_unexpected_response", type=type(decks_json).__name__)
+        return 0
+
+    logger.info("ygoprodeck_decks_fetched", count=len(decks_json))
+
+    saved = 0
+    async with _make_task_session()() as db:
+        for deck_data in decks_json:
+            try:
+                deck_name = (deck_data.get("deck_name") or "").strip()
+                if not deck_name:
+                    continue
+
+                zone_counts = {
+                    "main":  _count_card_ids(deck_data.get("main_deck") or []),
+                    "extra": _count_card_ids(deck_data.get("extra_deck") or []),
+                    "side":  _count_card_ids(deck_data.get("side_deck") or []),
+                }
+                all_ids = list({id_ for counts in zone_counts.values() for id_ in counts})
+                if not all_ids:
+                    continue
+
+                card_map = await _match_cards_by_ygoprodeck_id(db, all_ids)
+
+                entries: list[dict] = []
+                ordering = 0
+                for zone in ("main", "extra", "side"):
+                    for ygo_id, qty in zone_counts[zone].items():
+                        card = card_map.get(ygo_id)
+                        if card:
+                            entries.append({
+                                "card_id": card.id,
+                                "zone": zone,
+                                "quantity": min(qty, 3),
+                                "ordering": ordering,
+                            })
+                            ordering += 1
+
+                if len(entries) < 10:
+                    continue
+
+                pretty_url = deck_data.get("pretty_url") or ""
+                source_url = f"https://ygoprodeck.com/deck/{pretty_url}" if pretty_url else None
+
+                meta_deck = await _find_or_create_meta_deck(
+                    db, deck_name, _infer_archetype(deck_name),
+                    "tcg", "ygoprodeck.com", source_url,
+                )
+                await _save_full_deck(db, meta_deck.id, entries)
+                saved += 1
+
+            except Exception as e:
+                logger.warning("ygoprodeck_deck_save_error", name=deck_data.get("deck_name"), error=str(e))
+
+    logger.info("ygoprodeck_tcg_decks_saved", count=saved)
+    return saved
+
+
 async def _save_meta_decks(all_decks: list[dict]) -> dict:
     async with _make_task_session()() as db:
         upserted = await _upsert_meta_decks(db, all_decks)
@@ -562,10 +668,14 @@ def scrape_meta_decks_task() -> dict:
     # Phase 4: scrape full deck lists from masterduelmeta.com
     mdm_full = asyncio.run(_scrape_masterduelmeta_full_decks())
 
+    # Phase 5: scrape full TCG deck lists from ygoprodeck.com
+    ygoprodeck_full = asyncio.run(_scrape_ygoprodeck_tcg_decks())
+
     return {
         "db_archetypes": len(db_decks),
         "masterduelmeta": len(mdm_decks),
         "limitlesstcg": len(limitless_decks),
         "full_decks_masterduelmeta": mdm_full,
+        "full_decks_ygoprodeck": ygoprodeck_full,
         **result,
     }
