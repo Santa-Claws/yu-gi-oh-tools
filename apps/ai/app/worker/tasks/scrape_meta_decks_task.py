@@ -10,6 +10,7 @@ After running, recalculates popularity_score for all cards.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 
 import httpx
@@ -557,22 +558,34 @@ async def _scrape_masterduelmeta_full_decks() -> int:
 YGOPRODECK_DECKS_URL = "https://ygoprodeck.com/api/decks/getDecks.php"
 
 
+def _parse_ygoprodeck_zone(raw) -> list:
+    """Zone fields are JSON-encoded strings; parse them into a list."""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except Exception:
+            return []
+    return []
+
+
 async def _scrape_ygoprodeck_tcg_decks() -> int:
     """
     Fetch TCG tournament meta decks from the YGOPRODeck JSON API.
     No Playwright needed — plain httpx GET.
-    Card IDs (ygoprodeck_id integers) are repeated for quantity; zones are pre-split.
+    Zone fields are JSON-encoded strings of repeated card IDs (repeated = higher quantity).
     Returns number of decks saved.
     """
     params = {
         "num": "50",
         "offset": "0",
-        "type": "Tournament Meta Decks",
-        "format": "TCG",
+        "format": "Tournament Meta Decks",
         "sort": "Popularity",
     }
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, headers=headers) as client:
             resp = await client.get(YGOPRODECK_DECKS_URL, params=params)
             resp.raise_for_status()
             decks_json = resp.json()
@@ -595,9 +608,9 @@ async def _scrape_ygoprodeck_tcg_decks() -> int:
                     continue
 
                 zone_counts = {
-                    "main":  _count_card_ids(deck_data.get("main_deck") or []),
-                    "extra": _count_card_ids(deck_data.get("extra_deck") or []),
-                    "side":  _count_card_ids(deck_data.get("side_deck") or []),
+                    "main":  _count_card_ids(_parse_ygoprodeck_zone(deck_data.get("main_deck"))),
+                    "extra": _count_card_ids(_parse_ygoprodeck_zone(deck_data.get("extra_deck"))),
+                    "side":  _count_card_ids(_parse_ygoprodeck_zone(deck_data.get("side_deck"))),
                 }
                 all_ids = list({id_ for counts in zone_counts.values() for id_ in counts})
                 if not all_ids:
