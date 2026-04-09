@@ -25,9 +25,10 @@ bcrypt==4.0.1
 httpx==0.28.1
 aiohttp==3.11.11
 
-# Image processing (opencv + pillow always; paddleocr installed at runtime or in separate step)
+# Image processing
 opencv-python-headless==4.10.0.84
 pillow==11.1.0
+pytesseract==0.3.13
 
 # NLP / AI
 numpy==1.26.4
