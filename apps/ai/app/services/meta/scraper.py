@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import uuid
+from datetime import date, datetime
 
 import redis.asyncio as aioredis
 from sqlalchemy import case, select
@@ -18,6 +20,19 @@ logger = get_logger(__name__)
 
 _TIER_ORDER = case({"S": 0, "A": 1, "B": 2, "C": 3}, value=MetaDeck.tier, else_=4)
 _CACHE_TTL = 6 * 3600  # 6 hours
+
+
+class _Encoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, (uuid.UUID,)):
+            return str(o)
+        if isinstance(o, (datetime, date)):
+            return o.isoformat()
+        return super().default(o)
+
+
+def _dumps(obj) -> str:
+    return json.dumps(obj, cls=_Encoder)
 
 
 def _redis() -> aioredis.Redis:
@@ -111,7 +126,7 @@ class MetaScraperService:
             "pages": max(1, (total + page_size - 1) // page_size),
         }
         async with _redis() as r:
-            await r.set(cache_key, json.dumps(payload), ex=_CACHE_TTL)
+            await r.set(cache_key, _dumps(payload), ex=_CACHE_TTL)
         return payload
 
     async def get_popular_cards(self, format: str = "tcg", limit: int = 20) -> list[dict]:
@@ -130,7 +145,7 @@ class MetaScraperService:
         cards = result.scalars().all()
         payload = [CardOut.model_validate(c).model_dump(by_alias=True) for c in cards]
         async with _redis() as r:
-            await r.set(cache_key, json.dumps(payload), ex=_CACHE_TTL)
+            await r.set(cache_key, _dumps(payload), ex=_CACHE_TTL)
         return payload
 
     async def get_archetypes(self, format: str = "tcg") -> dict:
