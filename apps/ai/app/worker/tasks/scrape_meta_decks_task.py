@@ -684,6 +684,17 @@ def scrape_meta_decks_task() -> dict:
     # Phase 5: scrape full TCG deck lists from ygoprodeck.com
     ygoprodeck_full = asyncio.run(_scrape_ygoprodeck_tcg_decks())
 
+    # Phase 6: bust the meta cache so next request gets fresh data
+    async def _bust_cache():
+        import redis.asyncio as aioredis
+        async with aioredis.from_url(get_settings().redis_url, decode_responses=True) as r:
+            keys = await r.keys("meta:*")
+            if keys:
+                await r.delete(*keys)
+                logger.info("meta_cache_busted", keys=len(keys))
+
+    asyncio.run(_bust_cache())
+
     return {
         "db_archetypes": len(db_decks),
         "masterduelmeta": len(mdm_decks),

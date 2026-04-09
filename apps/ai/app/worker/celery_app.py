@@ -43,4 +43,9 @@ celery_app.conf.beat_schedule = {
         "task": "app.worker.tasks.embed_tasks.embed_cards_task",
         "schedule": crontab(hour=5, minute=0),
     },
+    # Refresh meta deck lists daily
+    "scrape-meta-decks-daily": {
+        "task": "scrape_meta_decks_task",
+        "schedule": crontab(hour=6, minute=0),
+    },
 }

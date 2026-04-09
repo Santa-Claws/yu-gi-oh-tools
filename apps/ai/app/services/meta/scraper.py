@@ -1,10 +1,14 @@
 """Meta scraper service — orchestrates scraping jobs and serves meta data."""
 from __future__ import annotations
 
+import json
+
+import redis.asyncio as aioredis
 from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models.card import Card
 from app.models.meta import MetaDeck, MetaDeckCard, MetaSource, ScrapedDocument
@@ -13,6 +17,11 @@ from app.schemas.card import CardOut
 logger = get_logger(__name__)
 
 _TIER_ORDER = case({"S": 0, "A": 1, "B": 2, "C": 3}, value=MetaDeck.tier, else_=4)
+_CACHE_TTL = 6 * 3600  # 6 hours
+
+
+def _redis() -> aioredis.Redis:
+    return aioredis.from_url(get_settings().redis_url, decode_responses=True)
 
 
 class MetaScraperService:
@@ -27,6 +36,12 @@ class MetaScraperService:
         page: int = 1,
         page_size: int = 20,
     ) -> dict:
+        cache_key = f"meta:decks:{format}:{tier}:{archetype}:{page}:{page_size}"
+        async with _redis() as r:
+            cached = await r.get(cache_key)
+            if cached:
+                return json.loads(cached)
+
         query = (
             select(MetaDeck)
             .options(
@@ -88,15 +103,24 @@ class MetaScraperService:
                 "scraped_at": deck.scraped_at.isoformat() if deck.scraped_at else None,
             })
 
-        return {
+        payload = {
             "decks": out,
             "total": total,
             "page": page,
             "page_size": page_size,
             "pages": max(1, (total + page_size - 1) // page_size),
         }
+        async with _redis() as r:
+            await r.set(cache_key, json.dumps(payload), ex=_CACHE_TTL)
+        return payload
 
     async def get_popular_cards(self, format: str = "tcg", limit: int = 20) -> list[dict]:
+        cache_key = f"meta:cards:{format}:{limit}"
+        async with _redis() as r:
+            cached = await r.get(cache_key)
+            if cached:
+                return json.loads(cached)
+
         result = await self.db.execute(
             select(Card)
             .options(selectinload(Card.prints))
@@ -104,7 +128,10 @@ class MetaScraperService:
             .limit(limit)
         )
         cards = result.scalars().all()
-        return [CardOut.model_validate(c).model_dump(by_alias=True) for c in cards]
+        payload = [CardOut.model_validate(c).model_dump(by_alias=True) for c in cards]
+        async with _redis() as r:
+            await r.set(cache_key, json.dumps(payload), ex=_CACHE_TTL)
+        return payload
 
     async def get_archetypes(self, format: str = "tcg") -> dict:
         from sqlalchemy import func
