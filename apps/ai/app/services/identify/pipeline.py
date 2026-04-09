@@ -42,14 +42,15 @@ class IdentificationPipeline:
         used_vision = False
         candidates: list[CardIdentifyResult] = []
 
-        # Stage 3: Candidate search from OCR
-        if ocr_result.card_name and ocr_result.confidence >= OCR_CONFIDENCE_THRESHOLD:
+        # Stage 3: Candidate search from OCR — always search if we have a name,
+        # regardless of overall confidence (name strip OCR is targeted and reliable)
+        if ocr_result.card_name:
             candidates = await self._search_candidates(ocr_result.card_name, match_type="ocr_name")
         if not candidates and ocr_result.card_number:
             candidates = await self._search_candidates_by_number(ocr_result.card_number)
 
-        # Stage 4: Vision fallback
-        if not candidates or ocr_result.confidence < OCR_CONFIDENCE_THRESHOLD:
+        # Stage 4: Vision fallback — only if OCR produced no candidates
+        if not candidates:
             used_vision = True
             vision_name = await self._vision_identify(image_bytes)
             if vision_name:
