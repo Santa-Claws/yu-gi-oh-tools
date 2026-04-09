@@ -21,7 +21,7 @@ export default function DeckDetailPage({ params }: { params: Promise<{ id: strin
   const [zone, setZone] = useState<"main" | "extra" | "side">("main");
   const [exportFmt, setExportFmt] = useState("json");
 
-  const { data: searchResults } = useCards({ q: search, page_size: 12 });
+  const { data: searchResults } = useCards({ q: search, page_size: 24, sort: "relevance" });
 
   if (isLoading) return <div className="py-20 text-center text-gray-400">Loading...</div>;
   if (!deck) return <div className="py-20 text-center text-red-500">Deck not found.</div>;
@@ -121,29 +121,31 @@ export default function DeckDetailPage({ params }: { params: Promise<{ id: strin
               <option value="side">Side</option>
             </select>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            {searchResults?.cards.slice(0, 9).map((card) => (
-              <button
-                key={card.id}
-                onClick={() => handleAddCard(card)}
-                className="group rounded-lg border border-gray-200 p-1 text-left transition-colors hover:border-blue-400"
-              >
-                {card.prints[0]?.image_url_small ? (
-                  <Image
-                    src={card.prints[0].image_url_small}
-                    alt={card.name_en}
-                    width={80}
-                    height={112}
-                    className="w-full rounded"
-                  />
-                ) : (
-                  <div className="flex h-[80px] items-center justify-center bg-gray-100 rounded text-xs text-gray-400">
-                    No img
-                  </div>
-                )}
-                <p className="mt-1 truncate text-xs">{card.name_en}</p>
-              </button>
-            ))}
+          <div className="h-[420px] overflow-y-auto">
+            <div className="grid grid-cols-4 gap-2">
+              {searchResults?.cards.map((card) => (
+                <button
+                  key={card.id}
+                  onClick={() => handleAddCard(card)}
+                  className="group rounded-lg border border-gray-200 p-1 text-left transition-colors hover:border-blue-400"
+                >
+                  {card.prints[0]?.image_url_small ? (
+                    <Image
+                      src={card.prints[0].image_url_small}
+                      alt={card.name_en}
+                      width={80}
+                      height={112}
+                      className="w-full rounded"
+                    />
+                  ) : (
+                    <div className="flex h-[80px] items-center justify-center bg-gray-100 rounded text-xs text-gray-400">
+                      No img
+                    </div>
+                  )}
+                  <p className="mt-1 truncate text-xs">{card.name_en}</p>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>

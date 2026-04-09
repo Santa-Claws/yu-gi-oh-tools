@@ -85,6 +85,17 @@ class CardSearchService:
             query = query.order_by(Card.name_en.asc())
         elif params.sort == "popularity":
             query = query.order_by(Card.popularity_score.desc())
+        elif params.sort == "relevance" and params.q:
+            # Rank: 0 = exact name, 1 = name starts-with query, 2 = name contains query, 3 = effect-only match
+            q_lower = params.q.lower()
+            name_lower = func.lower(Card.name_en)
+            relevance_rank = case(
+                (name_lower == q_lower, 0),
+                (name_lower.like(f"{q_lower}%"), 1),
+                (name_lower.like(f"%{q_lower}%"), 2),
+                else_=3,
+            )
+            query = query.order_by(relevance_rank, Card.name_en.asc())
         else:
             query = query.order_by(Card.name_en.asc())
 
